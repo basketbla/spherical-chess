@@ -473,11 +473,12 @@ export function applyMove(state: GameState, move: Move): GameState {
   // Switch turn
   newState.turn = state.turn === Color.White ? Color.Black : Color.White;
 
-  // Add move to history
-  newState.moveHistory.push({
-    ...move,
-    notation: getMoveNotation(state, move),
-  });
+  // Add move to history. Notation is intentionally NOT computed here:
+  // applyMove runs thousands of times during legality checking, and
+  // getMoveNotation itself applies moves to test for check/mate — computing
+  // it here would cause unbounded mutual recursion. makeMove() fills in the
+  // notation once, for the single move it actually commits.
+  newState.moveHistory.push({ ...move });
 
   return newState;
 }
@@ -546,6 +547,14 @@ export function makeMove(state: GameState, move: Move): GameState | null {
   if (!matchingMove) return null;
 
   const newState = applyMove(state, matchingMove);
+
+  // Fill in algebraic notation for the committed move (the pre-move `state`
+  // is needed to read the moving piece and disambiguate).
+  const lastIdx = newState.moveHistory.length - 1;
+  newState.moveHistory[lastIdx] = {
+    ...newState.moveHistory[lastIdx],
+    notation: getMoveNotation(state, matchingMove),
+  };
 
   // Check game status
   const opponentMoves = getLegalMoves(newState);
