@@ -277,7 +277,9 @@ function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasP
         onPointerOver={(e: any) => { e.stopPropagation(); setHovered(true); }}
         onPointerOut={() => setHovered(false)}
       >
-        <meshStandardMaterial map={woodMap} color={color} side={THREE.DoubleSide} roughness={0.65} metalness={0.05} />
+        {/* envMapIntensity≈0: the matte board ignores the (one-sided) studio
+            environment so it's lit evenly by ambient/hemisphere all around. */}
+        <meshStandardMaterial map={woodMap} color={color} side={THREE.DoubleSide} roughness={0.7} metalness={0} envMapIntensity={0.12} />
       </mesh>
 
       {isValidMove && (
@@ -303,18 +305,24 @@ function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasP
 function BoardLabels() {
   const labels: React.ReactNode[] = [];
   const files = 'abcdefgh';
+
+  // File letters ring the equator (rank 3.5), where longitudes are spread
+  // furthest apart — near the poles they'd bunch into a single point.
   for (let f = 0; f < 8; f++) {
-    const pos = boardToSphere(f, -0.6);
+    const pos = boardToSphere(f, 3.5);
     labels.push(
-      <Text key={`file-${f}`} position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]} fontSize={0.2} color="#9b8" anchorX="center" anchorY="middle">
+      <Text key={`file-${f}`} position={[pos.x * 1.16, pos.y * 1.16, pos.z * 1.16]}
+        fontSize={0.28} color="#f0dcb0" outlineWidth={0.012} outlineColor="#1a1209" anchorX="center" anchorY="middle">
         {files[f]}
       </Text>,
     );
   }
+  // Rank numbers run pole-to-pole along a single meridian.
   for (let r = 0; r < 8; r++) {
-    const pos = boardToSphere(-0.6, r);
+    const pos = boardToSphere(-0.7, r);
     labels.push(
-      <Text key={`rank-${r}`} position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]} fontSize={0.2} color="#9b8" anchorX="center" anchorY="middle">
+      <Text key={`rank-${r}`} position={[pos.x * 1.13, pos.y * 1.13, pos.z * 1.13]}
+        fontSize={0.22} color="#cfc09a" outlineWidth={0.01} outlineColor="#1a1209" anchorX="center" anchorY="middle">
         {String(r + 1)}
       </Text>,
     );
@@ -336,10 +344,10 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
   return (
     <>
       {/* Even illumination so squares read all the way around the sphere. */}
-      <ambientLight intensity={0.7} />
+      <ambientLight intensity={0.8} />
       <hemisphereLight color="#fff3e0" groundColor="#6b5a44" intensity={0.6} />
-      <directionalLight position={[5, 10, 5]} intensity={0.55} />
-      <directionalLight position={[-6, -3, -6]} intensity={0.4} />
+      <directionalLight position={[5, 10, 5]} intensity={0.4} />
+      <directionalLight position={[-6, -3, -6]} intensity={0.3} />
 
       <Environment resolution={256} frames={1}>
         <Lightformer intensity={3} position={[0, 4, -6]} scale={[12, 6, 1]} color="#fff6e8" />
@@ -351,7 +359,7 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
       <group rotation={[BOARD_TILT_X, 0, 0]}>
         <mesh>
           <sphereGeometry args={[SPHERE_RADIUS * 0.985, 64, 64]} />
-          <meshStandardMaterial color="#2a2018" roughness={0.9} metalness={0.05} />
+          <meshStandardMaterial color="#2a2018" roughness={0.9} metalness={0} envMapIntensity={0.15} />
         </mesh>
 
         {Array.from({ length: 8 }, (_, file) =>
