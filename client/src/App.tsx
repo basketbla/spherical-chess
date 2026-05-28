@@ -1,29 +1,24 @@
-import React, { useState, useCallback } from 'react';
-import ChessSphere, { type Quality } from './three/ChessSphere';
-import GameUI, { MoveHistory } from './components/GameUI';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import ChessSphere, { type AnimatedMove } from './three/ChessSphere';
+import GameUI from './components/GameUI';
+import Sidebar from './components/Sidebar';
+import SettingsPanel from './components/Settings';
 import Lobby from './components/Lobby';
 import WaitingRoom from './components/WaitingRoom';
 import { useSocket } from './hooks/useSocket';
+import { loadSettings, saveSettings, type Settings } from './settings';
 import {
   type Position,
   type Move,
   type GameState,
-  type Color,
   GameStatus,
   createInitialGameState,
   getLegalMovesForPiece,
   makeMove as applyLocalMove,
+  applyMove,
 } from 'spherical-chess-shared';
 
 type Screen = 'lobby' | 'waiting' | 'game';
-
-/** Default to lighter pieces on phones / low-core machines, HD elsewhere. */
-function defaultQuality(): Quality {
-  if (typeof navigator === 'undefined') return 'high';
-  const lowCores = (navigator.hardwareConcurrency ?? 8) <= 4;
-  const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 700;
-  return lowCores || smallScreen ? 'fast' : 'high';
-}
 
 export default function App() {
   const socket = useSocket();
@@ -32,66 +27,85 @@ export default function App() {
   const [currentValidMoves, setCurrentValidMoves] = useState<Move[]>([]);
   const [isLocalGame, setIsLocalGame] = useState(false);
   const [localState, setLocalState] = useState<GameState | null>(null);
-  const [quality, setQuality] = useState<Quality>(defaultQuality);
+  const [settings, setSettings] = useState<Settings>(loadSettings);
 
-  const gameState = isLocalGame ? localState : socket.gameState;
-  const playerColor = isLocalGame ? (localState?.turn ?? null) : socket.playerColor;
+  // Which ply we're viewing; null = follow the live position.
+  const [viewPly, setViewPly] = useState<number | null>(null);
+  // The move to animate when it's freshly played on the live board.
+  const [anim, setAnim] = useState<AnimatedMove | null>(null);
 
-  // Handle socket events to transition screens
-  React.useEffect(() => {
-    if (socket.room && !socket.gameState) {
-      setScreen('waiting');
-    }
-    if (socket.gameState && socket.gameState.status !== GameStatus.Waiting) {
-      setScreen('game');
-    }
+  const liveState = isLocalGame ? localState : socket.gameState;
+  const playerColor = isLocalGame ? (liveState?.turn ?? null) : socket.playerColor;
+
+  const totalPly = liveState?.moveHistory.length ?? 0;
+  const resolvedPly = viewPly === null ? totalPly : Math.min(viewPly, totalPly);
+  const viewingLive = resolvedPly >= totalPly;
+
+  // The board shown on screen: the live state, or a replayed past position.
+  const displayState = useMemo<GameState | null>(() => {
+    if (!liveState) return null;
+    if (viewingLive) return liveState;
+    let s = createInitialGameState();
+    for (let i = 0; i < resolvedPly; i++) s = applyMove(s, liveState.moveHistory[i]);
+    return s;
+  }, [liveState, viewingLive, resolvedPly]);
+
+  const updateSettings = useCallback((next: Settings) => {
+    setSettings(next);
+    saveSettings(next);
+  }, []);
+
+  // Persist screen transitions for online play.
+  useEffect(() => {
+    if (socket.room && !socket.gameState) setScreen('waiting');
+    if (socket.gameState && socket.gameState.status !== GameStatus.Waiting) setScreen('game');
   }, [socket.room, socket.gameState]);
 
+  // When a new move lands on the live board, queue its animation (if enabled).
+  const prevLen = useRef(0);
+  useEffect(() => {
+    const len = liveState?.moveHistory.length ?? 0;
+    if (len > prevLen.current && liveState) {
+      const mv = liveState.moveHistory[len - 1];
+      if (settings.animate) setAnim({ from: mv.from, to: mv.to, id: len });
+    }
+    prevLen.current = len;
+  }, [liveState, settings.animate]);
+
   const handleSquareClick = useCallback((pos: Position) => {
-    if (!gameState) return;
+    if (!liveState || !viewingLive) return; // no moving while reviewing history
 
-    const piece = gameState.board[pos.file][pos.rank];
+    const piece = liveState.board[pos.file][pos.rank];
 
-    // If we have a selected piece and click a valid move target, make the move
     if (selectedSquare && currentValidMoves.some(m => m.to.file === pos.file && m.to.rank === pos.rank)) {
       const move = currentValidMoves.find(m => m.to.file === pos.file && m.to.rank === pos.rank)!;
-
       if (isLocalGame) {
-        const newState = applyLocalMove(gameState, move);
-        if (newState) {
-          setLocalState(newState);
-        }
+        const newState = applyLocalMove(liveState, move);
+        if (newState) setLocalState(newState);
       } else {
         socket.makeMove(move);
       }
-
       setSelectedSquare(null);
       setCurrentValidMoves([]);
       return;
     }
 
-    // If clicking our own piece, select it and show valid moves
-    const currentTurn = gameState.turn;
+    const currentTurn = liveState.turn;
     if (piece && piece.color === currentTurn) {
-      // In online mode, only select if it's our turn
-      if (!isLocalGame && piece.color !== socket.playerColor) {
-        return;
-      }
-
+      if (!isLocalGame && piece.color !== socket.playerColor) return;
       setSelectedSquare(pos);
-      const moves = getLegalMovesForPiece(gameState, pos);
-      setCurrentValidMoves(moves);
+      setCurrentValidMoves(getLegalMovesForPiece(liveState, pos));
       return;
     }
 
-    // Clicking empty square or opponent piece without selection - deselect
     setSelectedSquare(null);
     setCurrentValidMoves([]);
-  }, [gameState, selectedSquare, currentValidMoves, isLocalGame, socket]);
+  }, [liveState, viewingLive, selectedSquare, currentValidMoves, isLocalGame, socket]);
 
   const handlePlayLocal = useCallback(() => {
     setIsLocalGame(true);
     setLocalState(createInitialGameState());
+    setViewPly(null);
     setScreen('game');
   }, []);
 
@@ -123,40 +137,32 @@ export default function App() {
     return <WaitingRoom room={socket.room} />;
   }
 
-  if (screen === 'game' && gameState) {
+  if (screen === 'game' && displayState && liveState) {
     return (
       <div style={{ width: '100%', height: '100%', position: 'relative' }}>
         <ChessSphere
-          gameState={gameState}
+          gameState={displayState}
           playerColor={playerColor}
-          validMoves={currentValidMoves}
-          selectedSquare={selectedSquare}
+          validMoves={viewingLive ? currentValidMoves : []}
+          selectedSquare={viewingLive ? selectedSquare : null}
           onSquareClick={handleSquareClick}
-          quality={quality}
+          quality={settings.quality}
+          animatedMove={viewingLive && settings.animate ? anim : null}
         />
-        <button
-          onClick={() => setQuality((q) => (q === 'high' ? 'fast' : 'high'))}
-          title="Toggle piece detail"
-          style={{
-            position: 'absolute', left: 16, bottom: 16, zIndex: 100,
-            padding: '6px 12px', fontSize: 12, cursor: 'pointer',
-            background: 'rgba(20,18,24,0.8)', color: '#ece6d8',
-            border: '1px solid rgba(236,230,216,0.2)', borderRadius: 6,
-          }}
-        >
-          Pieces: {quality === 'high' ? 'High' : 'Fast'}
-        </button>
+        <SettingsPanel settings={settings} onChange={updateSettings} />
         <GameUI
-          gameState={gameState}
-          playerColor={isLocalGame ? gameState.turn : playerColor}
+          gameState={liveState}
+          playerColor={isLocalGame ? liveState.turn : playerColor}
           gameOver={isLocalGame
-            ? gameState.status === GameStatus.Checkmate || gameState.status === GameStatus.Stalemate
+            ? liveState.status === GameStatus.Checkmate || liveState.status === GameStatus.Stalemate
             : socket.gameOver
           }
           opponentDisconnected={isLocalGame ? false : socket.opponentDisconnected}
           onResign={handleResign}
+          reviewing={!viewingLive}
+          onReturnToLive={() => setViewPly(null)}
         />
-        <MoveHistory moves={gameState.moveHistory} />
+        <Sidebar moves={liveState.moveHistory} ply={resolvedPly} onSetPly={(p) => setViewPly(p >= totalPly ? null : p)} />
       </div>
     );
   }

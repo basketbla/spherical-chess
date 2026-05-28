@@ -1,10 +1,11 @@
-import React, { useMemo, useRef, useState, Suspense } from 'react';
-import { Canvas } from '@react-three/fiber';
+import React, { useMemo, useRef, useState, useLayoutEffect, Suspense } from 'react';
+import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import { OrbitControls, Text, useGLTF, Environment, Lightformer } from '@react-three/drei';
 import * as THREE from 'three';
 import type { GameState, Position, Move, Color, Piece, PieceType } from 'spherical-chess-shared';
 
 export type Quality = 'fast' | 'high';
+export interface AnimatedMove { from: Position; to: Position; id: number; }
 
 interface ChessSphereProps {
   gameState: GameState;
@@ -13,17 +14,16 @@ interface ChessSphereProps {
   selectedSquare: Position | null;
   onSquareClick: (pos: Position) => void;
   quality: Quality;
+  animatedMove: AnimatedMove | null;
 }
 
 const SPHERE_RADIUS = 3;
 const UP = new THREE.Vector3(0, 1, 0);
-
-// Rotate the whole board so white's hemisphere (which sits near the south
-// pole in board space) faces the default camera. Players can still orbit.
 const BOARD_TILT_X = -1.97;
+const MOVE_ANIM_SECONDS = 0.34;
+const WOOD_TEXTURE = '/textures/wood_diffuse_1k.jpg';
 
 // ---- "fast" low-poly set (CC-BY, Jarlan Perez — see models/chess/CREDITS.md).
-// Positions only, no normals, single colour: we add normals + a colour at load.
 const FAST_PATHS: Record<string, string> = {
   K: '/models/chess/king.glb', Q: '/models/chess/queen.glb', R: '/models/chess/rook.glb',
   B: '/models/chess/bishop.glb', N: '/models/chess/knight.glb', P: '/models/chess/pawn.glb',
@@ -33,20 +33,21 @@ const WHITE_COLOR = '#efe7d4';
 const BLACK_COLOR = '#322e29';
 
 // ---- "high" PBR set (CC0, Poly Haven — see models/chess_hd/CREDITS.md).
-// One glb holding all 12 piece meshes with baked white/black wood materials.
 const HD_PATH = '/models/chess_hd/chess_set_1k.glb';
 const HD_SCALE = 10.7;
 const TYPE_NAME: Record<string, string> = {
   K: 'king', Q: 'queen', R: 'rook', B: 'bishop', N: 'knight', P: 'pawn',
 };
 
-// Only the small fast set is eagerly preloaded; the 4MB HD set loads on demand
-// when the user opts into high quality.
 Object.values(FAST_PATHS).forEach((p) => useGLTF.preload(p));
+
+function easeInOut(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
 
 /** Centre point of a board square on the sphere surface. */
 function boardToSphere(file: number, rank: number): THREE.Vector3 {
-  const phi = ((7 - rank + 0.5) / 8) * Math.PI; // 0 = north pole, PI = south
+  const phi = ((7 - rank + 0.5) / 8) * Math.PI;
   const theta = ((file + 0.5) / 8) * Math.PI * 2;
   return new THREE.Vector3(
     SPHERE_RADIUS * Math.sin(phi) * Math.cos(theta),
@@ -68,11 +69,12 @@ for (let f = 0; f < 8; f++) {
   }
 }
 
-/** Subdivided quad on the sphere surface for a single square. */
+/** Subdivided quad on the sphere surface for a single square (with UVs). */
 function createSquareGeometry(file: number, rank: number, subdivisions = 8): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
   const normals: number[] = [];
+  const uvs: number[] = [];
 
   for (let i = 0; i <= subdivisions; i++) {
     for (let j = 0; j <= subdivisions; j++) {
@@ -86,6 +88,7 @@ function createSquareGeometry(file: number, rank: number, subdivisions = 8): THR
       positions.push(x, y, z);
       const len = Math.sqrt(x * x + y * y + z * z) || 1;
       normals.push(x / len, y / len, z / len);
+      uvs.push(j / subdivisions, i / subdivisions);
     }
   }
   for (let i = 0; i < subdivisions; i++) {
@@ -100,21 +103,16 @@ function createSquareGeometry(file: number, rank: number, subdivisions = 8): THR
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   return geometry;
 }
 
-/**
- * Shared click-vs-drag detection: a pointerdown/up pair only counts as a
- * click if the pointer barely moved (otherwise it was an OrbitControls drag).
- */
+/** Click-vs-drag detection (a click only registers if the pointer barely moved). */
 function usePointerClick(onClick: () => void) {
   const down = useRef<{ x: number; y: number } | null>(null);
   return {
-    onPointerDown: (e: any) => {
-      e.stopPropagation();
-      down.current = { x: e.clientX, y: e.clientY };
-    },
+    onPointerDown: (e: any) => { e.stopPropagation(); down.current = { x: e.clientX, y: e.clientY }; },
     onPointerUp: (e: any) => {
       e.stopPropagation();
       const start = down.current;
@@ -128,54 +126,70 @@ function usePointerClick(onClick: () => void) {
 }
 
 /**
- * Renders a prepared piece object, uniformly scaled and seated so its base
- * sits on the sphere surface and it stands up along the outward normal.
+ * Renders a prepared piece object, scaled and seated on the sphere surface.
+ * When `from` is supplied, it animates a slide from that square to its own.
  */
-function SeatedPiece({
-  object,
-  scale,
-  file,
-  rank,
-  onClick,
-}: {
-  object: THREE.Object3D;
-  scale: number;
-  file: number;
-  rank: number;
-  onClick: () => void;
+function SeatedPiece({ object, scale, file, rank, from, animId, onClick }: {
+  object: THREE.Object3D; scale: number; file: number; rank: number;
+  from: Position | null; animId: number; onClick: () => void;
 }) {
   const handlers = usePointerClick(onClick);
-  const { offset } = useMemo(() => {
+  const groupRef = useRef<THREE.Group>(null);
+  const progress = useRef(1);
+
+  const offset = useMemo(() => {
     const box = new THREE.Box3().setFromObject(object);
-    const cx = (box.min.x + box.max.x) / 2;
-    const cz = (box.min.z + box.max.z) / 2;
-    return { offset: new THREE.Vector3(-cx * scale, -box.min.y * scale, -cz * scale) };
+    return new THREE.Vector3(
+      -((box.min.x + box.max.x) / 2) * scale,
+      -box.min.y * scale,
+      -((box.min.z + box.max.z) / 2) * scale,
+    );
   }, [object, scale]);
 
+  const target = SQUARE_CENTER[file][rank];
+  const targetQuat = SQUARE_QUAT[file][rank];
+
+  // Begin a slide whenever a new animated move targets this square.
+  useLayoutEffect(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    if (from) {
+      progress.current = 0;
+      g.position.copy(SQUARE_CENTER[from.file][from.rank]);
+      g.quaternion.copy(SQUARE_QUAT[from.file][from.rank]);
+    } else {
+      progress.current = 1;
+      g.position.copy(target);
+      g.quaternion.copy(targetQuat);
+    }
+  }, [animId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useFrame((_, delta) => {
+    const g = groupRef.current;
+    if (!g || progress.current >= 1 || !from) return;
+    progress.current = Math.min(1, progress.current + delta / MOVE_ANIM_SECONDS);
+    const t = easeInOut(progress.current);
+    const src = SQUARE_CENTER[from.file][from.rank];
+    g.position.copy(src).lerp(target, t).setLength(SPHERE_RADIUS);
+    g.quaternion.copy(SQUARE_QUAT[from.file][from.rank]).slerp(targetQuat, t);
+  });
+
   return (
-    <group position={SQUARE_CENTER[file][rank]} quaternion={SQUARE_QUAT[file][rank]}>
+    <group ref={groupRef} position={target} quaternion={targetQuat}>
       <primitive
         object={object}
         position={offset}
         scale={scale}
         {...handlers}
-        onPointerOver={(e: any) => {
-          e.stopPropagation();
-          document.body.style.cursor = 'pointer';
-        }}
-        onPointerOut={() => {
-          document.body.style.cursor = 'auto';
-        }}
+        onPointerOver={(e: any) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
+        onPointerOut={() => { document.body.style.cursor = 'auto'; }}
       />
     </group>
   );
 }
 
-/** A piece from the fast low-poly set: gets generated normals + a flat colour. */
-function FastPiece({ type, color, file, rank, onClick }: {
-  type: PieceType; color: Color; file: number; rank: number; onClick: () => void;
-}) {
-  const { scene } = useGLTF(FAST_PATHS[type]);
+function FastPiece(props: PieceRenderProps) {
+  const { scene } = useGLTF(FAST_PATHS[props.type]);
   const object = useMemo(() => {
     const clone = scene.clone(true);
     clone.traverse((obj) => {
@@ -183,33 +197,34 @@ function FastPiece({ type, color, file, rank, onClick }: {
       if (mesh.isMesh) {
         if (!mesh.geometry.attributes.normal) mesh.geometry.computeVertexNormals();
         mesh.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color(color === 'white' ? WHITE_COLOR : BLACK_COLOR),
+          color: new THREE.Color(props.color === 'white' ? WHITE_COLOR : BLACK_COLOR),
           roughness: 0.35, metalness: 0.15, clearcoat: 1, clearcoatRoughness: 0.18, envMapIntensity: 1.3,
         });
       }
     });
     return clone;
-  }, [scene, color]);
-
-  return <SeatedPiece object={object} scale={FAST_SCALE} file={file} rank={rank} onClick={onClick} />;
+  }, [scene, props.color]);
+  return <SeatedPiece object={object} scale={FAST_SCALE} {...props} />;
 }
 
-/** A piece from the high-quality PBR set: cloned from the shared HD scene. */
-function HdPiece({ type, color, file, rank, onClick }: {
-  type: PieceType; color: Color; file: number; rank: number; onClick: () => void;
-}) {
+function HdPiece(props: PieceRenderProps) {
   const { nodes } = useGLTF(HD_PATH) as any;
-  const object = useMemo(() => {
-    const source = nodes[`piece_${TYPE_NAME[type]}_${color}`] as THREE.Object3D;
-    return source.clone(true); // materials (with textures) are shared by reference
-  }, [nodes, type, color]);
+  const object = useMemo(
+    () => (nodes[`piece_${TYPE_NAME[props.type]}_${props.color}`] as THREE.Object3D).clone(true),
+    [nodes, props.type, props.color],
+  );
+  return <SeatedPiece object={object} scale={HD_SCALE} {...props} />;
+}
 
-  return <SeatedPiece object={object} scale={HD_SCALE} file={file} rank={rank} onClick={onClick} />;
+interface PieceRenderProps {
+  type: PieceType; color: Color; file: number; rank: number;
+  from: Position | null; animId: number; onClick: () => void;
 }
 
 /** All occupied squares' pieces, using the selected quality's source. */
-function PieceLayer({ board, quality, onSquareClick }: {
-  board: (Piece | null)[][]; quality: Quality; onSquareClick: (pos: Position) => void;
+function PieceLayer({ board, quality, animatedMove, onSquareClick }: {
+  board: (Piece | null)[][]; quality: Quality; animatedMove: AnimatedMove | null;
+  onSquareClick: (pos: Position) => void;
 }) {
   const Piece = quality === 'high' ? HdPiece : FastPiece;
   const items: React.ReactNode[] = [];
@@ -217,6 +232,7 @@ function PieceLayer({ board, quality, onSquareClick }: {
     for (let rank = 0; rank < 8; rank++) {
       const piece = board[file][rank];
       if (!piece) continue;
+      const isAnimTarget = animatedMove && animatedMove.to.file === file && animatedMove.to.rank === rank;
       items.push(
         <Piece
           key={`${file}-${rank}`}
@@ -224,6 +240,8 @@ function PieceLayer({ board, quality, onSquareClick }: {
           color={piece.color}
           file={file}
           rank={rank}
+          from={isAnimTarget ? animatedMove!.from : null}
+          animId={isAnimTarget ? animatedMove!.id : 0}
           onClick={() => onSquareClick({ file, rank })}
         />,
       );
@@ -232,20 +250,21 @@ function PieceLayer({ board, quality, onSquareClick }: {
   return <>{items}</>;
 }
 
-/** A board square: the clickable quad plus its highlight and move marker. */
-function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasPiece, onClick }: {
-  file: number; rank: number; isLight: boolean; isSelected: boolean;
-  isValidMove: boolean; isLastMove: boolean; hasPiece: boolean; onClick: () => void;
+/** A board square: clickable wood quad plus highlight and move marker. */
+function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasPiece, woodMap, onClick }: {
+  file: number; rank: number; isLight: boolean; isSelected: boolean; isValidMove: boolean;
+  isLastMove: boolean; hasPiece: boolean; woodMap: THREE.Texture; onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const geometry = useMemo(() => createSquareGeometry(file, rank), [file, rank]);
   const clickHandlers = usePointerClick(onClick);
 
+  // Tint multiplies the shared wood texture, giving light/dark wood + highlights.
   let color: string;
-  if (isSelected) color = '#f7c948';
-  else if (isLastMove) color = isLight ? '#cdd98a' : '#a3a55a';
-  else if (hovered) color = isLight ? '#f7e3c0' : '#c2966f';
-  else color = isLight ? '#f0d9b5' : '#b58863';
+  if (isSelected) color = '#e7b84e';
+  else if (isLastMove) color = isLight ? '#c9b86a' : '#9a8540';
+  else if (hovered) color = isLight ? '#e7cf9f' : '#9c6a40';
+  else color = isLight ? '#cdb083' : '#6f4a2c';
 
   return (
     <group>
@@ -255,20 +274,20 @@ function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasP
         onPointerOver={(e: any) => { e.stopPropagation(); setHovered(true); }}
         onPointerOut={() => setHovered(false)}
       >
-        <meshStandardMaterial color={color} side={THREE.DoubleSide} roughness={0.8} metalness={0.05} />
+        <meshStandardMaterial map={woodMap} color={color} side={THREE.DoubleSide} roughness={0.65} metalness={0.05} />
       </mesh>
 
       {isValidMove && (
-        <group position={SQUARE_CENTER[file][rank].clone().multiplyScalar(1.012)} quaternion={SQUARE_QUAT[file][rank]}>
+        <group position={SQUARE_CENTER[file][rank].clone().multiplyScalar(1.008)} quaternion={SQUARE_QUAT[file][rank]}>
           {hasPiece ? (
-            <mesh rotation={[Math.PI / 2, 0, 0]}>
-              <torusGeometry args={[0.34, 0.045, 12, 28]} />
-              <meshStandardMaterial color="#e94560" emissive="#e94560" emissiveIntensity={0.4} />
+            <mesh rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.3, 0.4, 48]} />
+              <meshBasicMaterial color="#e94560" transparent opacity={0.85} side={THREE.DoubleSide} depthWrite={false} />
             </mesh>
           ) : (
-            <mesh>
-              <cylinderGeometry args={[0.13, 0.13, 0.03, 20]} />
-              <meshStandardMaterial color="#3fa34d" emissive="#3fa34d" emissiveIntensity={0.5} />
+            <mesh rotation={[-Math.PI / 2, 0, 0]}>
+              <circleGeometry args={[0.15, 40]} />
+              <meshBasicMaterial color="#3fa34d" transparent opacity={0.7} depthWrite={false} />
             </mesh>
           )}
         </group>
@@ -284,7 +303,7 @@ function BoardLabels() {
   for (let f = 0; f < 8; f++) {
     const pos = boardToSphere(f, -0.6);
     labels.push(
-      <Text key={`file-${f}`} position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]} fontSize={0.2} color="#888" anchorX="center" anchorY="middle">
+      <Text key={`file-${f}`} position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]} fontSize={0.2} color="#9b8" anchorX="center" anchorY="middle">
         {files[f]}
       </Text>,
     );
@@ -292,7 +311,7 @@ function BoardLabels() {
   for (let r = 0; r < 8; r++) {
     const pos = boardToSphere(-0.6, r);
     labels.push(
-      <Text key={`rank-${r}`} position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]} fontSize={0.2} color="#888" anchorX="center" anchorY="middle">
+      <Text key={`rank-${r}`} position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]} fontSize={0.2} color="#9b8" anchorX="center" anchorY="middle">
         {String(r + 1)}
       </Text>,
     );
@@ -301,8 +320,15 @@ function BoardLabels() {
 }
 
 /** The full 3D sphere board scene. */
-function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick, quality }: ChessSphereProps) {
+function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick, quality, animatedMove }: ChessSphereProps) {
   const lastMove = gameState.moveHistory.length > 0 ? gameState.moveHistory[gameState.moveHistory.length - 1] : null;
+
+  const woodMap = useLoader(THREE.TextureLoader, WOOD_TEXTURE);
+  useMemo(() => {
+    woodMap.colorSpace = THREE.SRGBColorSpace;
+    woodMap.anisotropy = 8;
+    woodMap.wrapS = woodMap.wrapT = THREE.RepeatWrapping;
+  }, [woodMap]);
 
   return (
     <>
@@ -310,7 +336,6 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
       <directionalLight position={[5, 10, 5]} intensity={0.9} />
       <directionalLight position={[-6, -3, -6]} intensity={0.45} />
 
-      {/* Local studio environment: reflections + soft IBL without any HDRI fetch. */}
       <Environment resolution={256} frames={1}>
         <Lightformer intensity={3} position={[0, 4, -6]} scale={[12, 6, 1]} color="#fff6e8" />
         <Lightformer intensity={1.4} position={[-6, 2, 4]} scale={[6, 6, 1]} color="#bcd0ff" />
@@ -319,10 +344,9 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
       </Environment>
 
       <group rotation={[BOARD_TILT_X, 0, 0]}>
-        {/* Solid inner sphere so the far side can't be clicked or seen through. */}
         <mesh>
           <sphereGeometry args={[SPHERE_RADIUS * 0.985, 64, 64]} />
-          <meshStandardMaterial color="#23233a" roughness={0.9} metalness={0.05} />
+          <meshStandardMaterial color="#2a2018" roughness={0.9} metalness={0.05} />
         </mesh>
 
         {Array.from({ length: 8 }, (_, file) =>
@@ -344,6 +368,7 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
                 isValidMove={isValidMove}
                 isLastMove={isLastMove}
                 hasPiece={!!gameState.board[file][rank]}
+                woodMap={woodMap}
                 onClick={() => onSquareClick({ file, rank })}
               />
             );
@@ -351,7 +376,7 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
         )}
 
         <Suspense fallback={null}>
-          <PieceLayer board={gameState.board} quality={quality} onSquareClick={onSquareClick} />
+          <PieceLayer board={gameState.board} quality={quality} animatedMove={animatedMove} onSquareClick={onSquareClick} />
         </Suspense>
 
         <BoardLabels />
