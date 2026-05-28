@@ -10,6 +10,8 @@ interface LobbyProps {
   onClearError: () => void;
 }
 
+const VIDEO_URL = 'https://www.youtube.com/watch?v=pWYt348Ki5g';
+
 export default function Lobby({
   connected,
   onJoinQueue,
@@ -26,231 +28,340 @@ export default function Lobby({
 
   const playerName = name.trim() || 'Player';
 
+  const tabs = [
+    { id: 'quick', label: 'Quick Match' },
+    { id: 'private', label: 'Private' },
+    { id: 'local', label: 'Local' },
+  ] as const;
+
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-      padding: '20px',
-    }}>
-      <div style={{
-        textAlign: 'center',
-        marginBottom: '40px',
-      }}>
-        <h1 style={{
-          fontSize: 'clamp(32px, 6vw, 56px)',
-          fontWeight: 800,
-          background: 'linear-gradient(90deg, #e94560, #f7c948)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          margin: 0,
-        }}>
-          Spherical Chess
-        </h1>
-        <p style={{ color: '#888', marginTop: '8px', fontSize: '16px' }}>
-          Chess on a sphere - where every edge connects
-        </p>
-      </div>
+    <div className="lobby-root">
+      <div className="lobby-stage">
+        <header className="lobby-head">
+          <div className="lobby-pieces" aria-hidden="true">♜&nbsp;♞&nbsp;♝&nbsp;♛&nbsp;♚&nbsp;♝&nbsp;♞&nbsp;♜</div>
+          <h1 className="lobby-title">Spherical Chess</h1>
+        </header>
 
-      <div style={{
-        background: 'rgba(255,255,255,0.05)',
-        borderRadius: '16px',
-        padding: '24px',
-        width: '100%',
-        maxWidth: '420px',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(255,255,255,0.1)',
-      }}>
-        {/* Connection status */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          marginBottom: '20px',
-          fontSize: '13px',
-          color: connected ? '#7bc96f' : '#e94560',
-        }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: connected ? '#7bc96f' : '#e94560',
-          }} />
-          {connected ? 'Connected to server' : 'Connecting...'}
-        </div>
+        <div className="lobby-card">
+          <div className={`lobby-status ${connected ? 'is-on' : 'is-off'}`}>
+            <span className="lobby-dot" />
+            {connected ? 'Connected to server' : 'Connecting…'}
+          </div>
 
-        {/* Name input */}
-        <input
-          type="text"
-          placeholder="Your name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '12px 16px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.15)',
-            background: 'rgba(255,255,255,0.08)',
-            color: '#fff',
-            fontSize: '15px',
-            marginBottom: '16px',
-            outline: 'none',
-          }}
-        />
+          <label className="lobby-field-label" htmlFor="lobby-name">Player name</label>
+          <input
+            id="lobby-name"
+            type="text"
+            className="lobby-input"
+            placeholder="Anonymous"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
 
-        {/* Tab buttons */}
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '16px' }}>
-          {(['quick', 'private', 'local'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => { setTab(t); setInQueue(false); }}
-              style={{
-                flex: 1,
-                padding: '8px',
-                borderRadius: '6px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: 600,
-                background: tab === t ? '#e94560' : 'rgba(255,255,255,0.08)',
-                color: tab === t ? '#fff' : '#aaa',
-                transition: 'all 0.2s',
-              }}
-            >
-              {t === 'quick' ? 'Quick Match' : t === 'private' ? 'Private' : 'Local'}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab content */}
-        {tab === 'quick' && (
-          <div>
-            {!inQueue ? (
+          <div className="lobby-tabs" role="tablist">
+            {tabs.map((t) => (
               <button
-                onClick={() => { setInQueue(true); onJoinQueue(playerName); }}
-                disabled={!connected}
-                style={{
-                  width: '100%',
-                  padding: '14px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  cursor: connected ? 'pointer' : 'not-allowed',
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  background: connected
-                    ? 'linear-gradient(90deg, #e94560, #c23152)'
-                    : '#555',
-                  color: '#fff',
-                }}
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`lobby-tab ${tab === t.id ? 'is-active' : ''}`}
+                onClick={() => { setTab(t.id); setInQueue(false); }}
               >
-                Find Opponent
+                {t.label}
               </button>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '20px' }}>
-                <div style={{
-                  width: '32px', height: '32px', margin: '0 auto 12px',
-                  border: '3px solid #e94560', borderTopColor: 'transparent',
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite',
-                }} />
-                <p style={{ color: '#ccc', fontSize: '14px' }}>Searching for opponent...</p>
+            ))}
+          </div>
+
+          <div className="lobby-panel">
+            {tab === 'quick' && (
+              !inQueue ? (
                 <button
-                  onClick={() => { setInQueue(false); }}
-                  style={{
-                    marginTop: '12px', padding: '8px 16px',
-                    background: 'transparent', border: '1px solid #666',
-                    color: '#aaa', borderRadius: '6px', cursor: 'pointer', fontSize: '13px',
-                  }}
+                  className="lobby-btn lobby-btn--primary"
+                  onClick={() => { setInQueue(true); onJoinQueue(playerName); }}
+                  disabled={!connected}
                 >
-                  Cancel
+                  Find Opponent
                 </button>
+              ) : (
+                <div className="lobby-searching">
+                  <span className="lobby-spinner" />
+                  <p>Searching for an opponent…</p>
+                  <button className="lobby-btn lobby-btn--ghost" onClick={() => setInQueue(false)}>
+                    Cancel
+                  </button>
+                </div>
+              )
+            )}
+
+            {tab === 'private' && (
+              <div className="lobby-stack">
+                <button
+                  className="lobby-btn lobby-btn--primary"
+                  onClick={() => onCreatePrivate(playerName)}
+                  disabled={!connected}
+                >
+                  Create Game
+                </button>
+                <div className="lobby-divider"><span>or join with a code</span></div>
+                <div className="lobby-row">
+                  <input
+                    type="text"
+                    className="lobby-input"
+                    placeholder="Room code"
+                    value={roomCode}
+                    onChange={(e) => setRoomCode(e.target.value)}
+                  />
+                  <button
+                    className="lobby-btn lobby-btn--outline"
+                    onClick={() => onJoinPrivate(roomCode.trim(), playerName)}
+                    disabled={!connected || !roomCode.trim()}
+                  >
+                    Join
+                  </button>
+                </div>
               </div>
             )}
-          </div>
-        )}
 
-        {tab === 'private' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <button
-              onClick={() => onCreatePrivate(playerName)}
-              disabled={!connected}
-              style={{
-                width: '100%', padding: '14px', borderRadius: '8px', border: 'none',
-                cursor: connected ? 'pointer' : 'not-allowed',
-                fontSize: '15px', fontWeight: 600,
-                background: 'linear-gradient(90deg, #e94560, #c23152)',
-                color: '#fff',
-              }}
-            >
-              Create Game
-            </button>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="text"
-                placeholder="Room code"
-                value={roomCode}
-                onChange={(e) => setRoomCode(e.target.value)}
-                style={{
-                  flex: 1, padding: '12px', borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(255,255,255,0.08)',
-                  color: '#fff', fontSize: '14px', outline: 'none',
-                }}
-              />
-              <button
-                onClick={() => onJoinPrivate(roomCode.trim(), playerName)}
-                disabled={!connected || !roomCode.trim()}
-                style={{
-                  padding: '12px 20px', borderRadius: '8px', border: 'none',
-                  cursor: connected && roomCode.trim() ? 'pointer' : 'not-allowed',
-                  fontSize: '14px', fontWeight: 600, background: '#0f3460',
-                  color: '#fff',
-                }}
-              >
-                Join
+            {tab === 'local' && (
+              <button className="lobby-btn lobby-btn--primary" onClick={onPlayLocal}>
+                Play Locally · 2 Players
               </button>
+            )}
+          </div>
+
+          {error && (
+            <div className="lobby-error">
+              <span>{error}</span>
+              <button onClick={onClearError} aria-label="Dismiss">×</button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {tab === 'local' && (
-          <button
-            onClick={onPlayLocal}
-            style={{
-              width: '100%', padding: '14px', borderRadius: '8px', border: 'none',
-              cursor: 'pointer', fontSize: '16px', fontWeight: 700,
-              background: 'linear-gradient(90deg, #f7c948, #e9a620)',
-              color: '#1a1a2e',
-            }}
-          >
-            Play Locally (2 Players)
-          </button>
-        )}
-
-        {error && (
-          <div style={{
-            marginTop: '12px', padding: '10px 14px', borderRadius: '8px',
-            background: 'rgba(233,69,96,0.2)', border: '1px solid rgba(233,69,96,0.4)',
-            color: '#e94560', fontSize: '13px',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          }}>
-            {error}
-            <button onClick={onClearError} style={{
-              background: 'none', border: 'none', color: '#e94560',
-              cursor: 'pointer', fontSize: '16px',
-            }}>x</button>
-          </div>
-        )}
+        <a className="lobby-watch" href={VIDEO_URL} target="_blank" rel="noopener noreferrer">
+          <span className="lobby-watch-icon">▶</span>
+          Watch how it works
+        </a>
       </div>
 
       <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
+        .lobby-root {
+          width: 100%;
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          color: #ece6d8;
+          background-color: #15130f;
+          background-image:
+            radial-gradient(120% 120% at 50% 0%, rgba(201,167,106,0.06) 0%, transparent 55%),
+            repeating-conic-gradient(rgba(236,230,216,0.022) 0% 25%, transparent 0% 50%);
+          background-size: auto, 64px 64px;
+          overflow-y: auto;
         }
+        .lobby-stage {
+          width: 100%;
+          max-width: 400px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+        .lobby-head {
+          text-align: center;
+          margin-bottom: 34px;
+        }
+        .lobby-pieces {
+          font-size: 17px;
+          color: rgba(201,167,106,0.55);
+          letter-spacing: 2px;
+          margin-bottom: 14px;
+        }
+        .lobby-title {
+          font-family: 'Cormorant Garamond', Georgia, serif;
+          font-weight: 600;
+          font-size: clamp(40px, 9vw, 60px);
+          line-height: 1;
+          letter-spacing: 0.5px;
+          color: #f3eee2;
+          margin: 0;
+        }
+        .lobby-card {
+          width: 100%;
+          background: #1c1813;
+          border: 1px solid rgba(236,230,216,0.1);
+          border-radius: 4px;
+          padding: 26px 24px 24px;
+          box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+        }
+        .lobby-status {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 11px;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          margin-bottom: 22px;
+        }
+        .lobby-status.is-on { color: #8aa06a; }
+        .lobby-status.is-off { color: #b5713f; }
+        .lobby-dot {
+          width: 7px; height: 7px; border-radius: 50%;
+          background: currentColor;
+          box-shadow: 0 0 0 3px rgba(255,255,255,0.04);
+        }
+        .lobby-field-label {
+          display: block;
+          font-size: 11px;
+          letter-spacing: 1.2px;
+          text-transform: uppercase;
+          color: #7e7563;
+          margin-bottom: 8px;
+        }
+        .lobby-input {
+          width: 100%;
+          padding: 11px 13px;
+          border-radius: 3px;
+          border: 1px solid rgba(236,230,216,0.14);
+          background: #141009;
+          color: #ece6d8;
+          font-size: 15px;
+          font-family: inherit;
+          outline: none;
+          transition: border-color 0.15s ease;
+        }
+        .lobby-input::placeholder { color: #5f5848; }
+        .lobby-input:focus { border-color: rgba(201,167,106,0.7); }
+        .lobby-tabs {
+          display: flex;
+          gap: 22px;
+          margin: 24px 0 18px;
+          border-bottom: 1px solid rgba(236,230,216,0.1);
+        }
+        .lobby-tab {
+          appearance: none;
+          background: none;
+          border: none;
+          padding: 0 0 10px;
+          margin-bottom: -1px;
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 13px;
+          letter-spacing: 0.4px;
+          color: #7e7563;
+          border-bottom: 2px solid transparent;
+          transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        .lobby-tab:hover { color: #c4bba6; }
+        .lobby-tab.is-active {
+          color: #f3eee2;
+          border-bottom-color: #c9a76a;
+        }
+        .lobby-panel { min-height: 52px; }
+        .lobby-stack { display: flex; flex-direction: column; gap: 14px; }
+        .lobby-row { display: flex; gap: 8px; }
+        .lobby-row .lobby-input { flex: 1; }
+        .lobby-btn {
+          appearance: none;
+          font-family: inherit;
+          font-size: 14px;
+          letter-spacing: 0.5px;
+          border-radius: 3px;
+          padding: 12px 18px;
+          cursor: pointer;
+          transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+          border: 1px solid transparent;
+        }
+        .lobby-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .lobby-btn--primary {
+          width: 100%;
+          background: #c9a76a;
+          color: #1a150d;
+          font-weight: 600;
+          border-color: #c9a76a;
+        }
+        .lobby-btn--primary:not(:disabled):hover { background: #d8b87e; border-color: #d8b87e; }
+        .lobby-btn--outline {
+          background: transparent;
+          color: #ece6d8;
+          border-color: rgba(236,230,216,0.22);
+          white-space: nowrap;
+        }
+        .lobby-btn--outline:not(:disabled):hover { border-color: rgba(201,167,106,0.7); color: #f3eee2; }
+        .lobby-btn--ghost {
+          background: transparent;
+          color: #948a76;
+          border-color: rgba(236,230,216,0.16);
+          margin-top: 14px;
+          padding: 8px 16px;
+        }
+        .lobby-btn--ghost:hover { color: #ece6d8; border-color: rgba(236,230,216,0.3); }
+        .lobby-divider {
+          display: flex;
+          align-items: center;
+          text-align: center;
+          color: #6f6655;
+          font-size: 11px;
+          letter-spacing: 0.6px;
+        }
+        .lobby-divider::before,
+        .lobby-divider::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: rgba(236,230,216,0.1);
+        }
+        .lobby-divider span { padding: 0 12px; }
+        .lobby-searching {
+          text-align: center;
+          padding: 6px 0;
+        }
+        .lobby-searching p {
+          color: #948a76;
+          font-size: 14px;
+          margin: 0;
+        }
+        .lobby-spinner {
+          display: block;
+          width: 26px; height: 26px;
+          margin: 0 auto 14px;
+          border: 2px solid rgba(201,167,106,0.25);
+          border-top-color: #c9a76a;
+          border-radius: 50%;
+          animation: lobby-spin 0.9s linear infinite;
+        }
+        .lobby-error {
+          margin-top: 16px;
+          padding: 10px 14px;
+          border-radius: 3px;
+          background: rgba(181,113,63,0.12);
+          border: 1px solid rgba(181,113,63,0.35);
+          color: #d99868;
+          font-size: 13px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+        .lobby-error button {
+          background: none; border: none; color: inherit;
+          cursor: pointer; font-size: 18px; line-height: 1;
+        }
+        .lobby-watch {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 26px;
+          color: #948a76;
+          text-decoration: none;
+          font-size: 13px;
+          letter-spacing: 0.4px;
+          border-bottom: 1px solid transparent;
+          padding-bottom: 2px;
+          transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        .lobby-watch:hover { color: #ece6d8; border-bottom-color: rgba(201,167,106,0.6); }
+        .lobby-watch-icon { font-size: 10px; color: #c9a76a; }
+        @keyframes lobby-spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
