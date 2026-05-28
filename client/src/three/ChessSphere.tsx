@@ -1,14 +1,8 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Text, Html } from '@react-three/drei';
+import React, { useMemo, useRef, useState, Suspense } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Text, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
-import type { GameState, Position, Move, Color, Piece } from 'spherical-chess-shared';
-
-// Unicode chess pieces
-const PIECE_SYMBOLS: Record<string, Record<string, string>> = {
-  white: { K: '\u2654', Q: '\u2655', R: '\u2656', B: '\u2657', N: '\u2658', P: '\u2659' },
-  black: { K: '\u265A', Q: '\u265B', R: '\u265C', B: '\u265D', N: '\u265E', P: '\u265F' },
-};
+import type { GameState, Position, Move, Color, Piece, PieceType } from 'spherical-chess-shared';
 
 interface ChessSphereProps {
   gameState: GameState;
@@ -19,21 +13,43 @@ interface ChessSphereProps {
 }
 
 const SPHERE_RADIUS = 3;
-const ROWS = 8;
-const COLS = 8;
+
+// 3D piece models (CC-BY, Jarlan Perez — see public/models/chess/CREDITS.md).
+const MODEL_PATHS: Record<string, string> = {
+  K: '/models/chess/king.glb',
+  Q: '/models/chess/queen.glb',
+  R: '/models/chess/rook.glb',
+  B: '/models/chess/bishop.glb',
+  N: '/models/chess/knight.glb',
+  P: '/models/chess/pawn.glb',
+};
+
+// Each model is Y-up and centered on X/Z; minY is the local Y of its base,
+// used to seat the base exactly on the sphere surface after scaling.
+const MODEL_BASE_Y: Record<string, number> = {
+  K: -0.22, Q: -0.19, R: -0.09, N: -0.13, B: -0.12, P: -0.10,
+};
+
+const PIECE_SCALE = 2.3;
+const WHITE_COLOR = '#efe7d4';
+const BLACK_COLOR = '#322e29';
+
+// Preload all models so they're ready when the board mounts.
+Object.values(MODEL_PATHS).forEach((p) => useGLTF.preload(p));
+
+// Rotate the whole board so white's hemisphere (which sits near the south
+// pole in board space) faces the default camera. Players can still orbit.
+const BOARD_TILT_X = -1.97;
+
+const UP = new THREE.Vector3(0, 1, 0);
 
 /**
- * Convert board file/rank to spherical coordinates on the sphere surface.
- * The sphere's equator corresponds to ranks 4-5, poles at rank extremes.
+ * Convert board file/rank to the point on the sphere surface at the centre
+ * of that square. Files wrap around longitude, ranks run pole-to-pole.
  */
 function boardToSphere(file: number, rank: number): THREE.Vector3 {
-  // Map rank 0-7 to latitude (phi): south pole to north pole
-  // phi goes from ~15deg to ~165deg (avoid exact poles for rendering)
-  const phi = ((7 - rank + 0.5) / 8) * Math.PI; // 0 = north, PI = south
-
-  // Map file 0-7 to longitude (theta): full 360 degrees
+  const phi = ((7 - rank + 0.5) / 8) * Math.PI; // 0 = north pole, PI = south
   const theta = ((file + 0.5) / 8) * Math.PI * 2;
-
   return new THREE.Vector3(
     SPHERE_RADIUS * Math.sin(phi) * Math.cos(theta),
     SPHERE_RADIUS * Math.cos(phi),
@@ -41,35 +57,8 @@ function boardToSphere(file: number, rank: number): THREE.Vector3 {
   );
 }
 
-/**
- * Get the 4 corners of a square on the sphere for geometry building.
- */
-function getSquareCorners(file: number, rank: number): THREE.Vector3[] {
-  const corners: THREE.Vector3[] = [];
-
-  for (const [df, dr] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
-    const f = (file + df) / 8;
-    const r = (rank + dr) / 8;
-
-    const phi = (1 - r) * Math.PI;
-    const theta = f * Math.PI * 2;
-
-    corners.push(
-      new THREE.Vector3(
-        SPHERE_RADIUS * Math.sin(phi) * Math.cos(theta),
-        SPHERE_RADIUS * Math.cos(phi),
-        SPHERE_RADIUS * Math.sin(phi) * Math.sin(theta),
-      )
-    );
-  }
-
-  return corners;
-}
-
-/**
- * Create a subdivided quad on the sphere surface for a single square.
- */
-function createSquareGeometry(file: number, rank: number, subdivisions: number = 8): THREE.BufferGeometry {
+/** Subdivided quad on the sphere surface for a single square. */
+function createSquareGeometry(file: number, rank: number, subdivisions = 8): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
   const normals: number[] = [];
@@ -87,9 +76,7 @@ function createSquareGeometry(file: number, rank: number, subdivisions: number =
       const z = SPHERE_RADIUS * Math.sin(phi) * Math.sin(theta);
 
       positions.push(x, y, z);
-
-      // Normal points outward from sphere center
-      const len = Math.sqrt(x * x + y * y + z * z);
+      const len = Math.sqrt(x * x + y * y + z * z) || 1;
       normals.push(x / len, y / len, z / len);
     }
   }
@@ -100,9 +87,7 @@ function createSquareGeometry(file: number, rank: number, subdivisions: number =
       const b = a + 1;
       const c = a + (subdivisions + 1);
       const d = c + 1;
-
-      indices.push(a, b, d);
-      indices.push(a, d, c);
+      indices.push(a, b, d, a, d, c);
     }
   }
 
@@ -110,12 +95,90 @@ function createSquareGeometry(file: number, rank: number, subdivisions: number =
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setIndex(indices);
-
   return geometry;
 }
 
-/** A single board square rendered on the sphere surface. */
-function BoardSquare({
+/**
+ * Shared click-vs-drag detection: a pointerdown/up pair only counts as a
+ * click if the pointer barely moved (otherwise it was an OrbitControls drag).
+ */
+function usePointerClick(onClick: () => void) {
+  const down = useRef<{ x: number; y: number } | null>(null);
+  return {
+    onPointerDown: (e: any) => {
+      e.stopPropagation();
+      down.current = { x: e.clientX, y: e.clientY };
+    },
+    onPointerUp: (e: any) => {
+      e.stopPropagation();
+      const start = down.current;
+      down.current = null;
+      if (!start) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (dx * dx + dy * dy < 36) onClick();
+    },
+  };
+}
+
+/** A single 3D piece, recoloured for its side and seated on the surface. */
+function PieceModel({
+  type,
+  color,
+  quaternion,
+  center,
+  onClick,
+}: {
+  type: PieceType;
+  color: Color;
+  quaternion: THREE.Quaternion;
+  center: THREE.Vector3;
+  onClick: () => void;
+}) {
+  const { scene } = useGLTF(MODEL_PATHS[type]);
+  const handlers = usePointerClick(onClick);
+
+  const model = useMemo(() => {
+    const clone = scene.clone(true);
+    clone.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh) {
+        const mat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(color === 'white' ? WHITE_COLOR : BLACK_COLOR),
+          roughness: 0.45,
+          metalness: 0.25,
+        });
+        mesh.material = mat;
+      }
+    });
+    return clone;
+  }, [scene, color]);
+
+  const baseOffset = -MODEL_BASE_Y[type] * PIECE_SCALE;
+
+  return (
+    <group position={center} quaternion={quaternion}>
+      {/* +Y of the group now points along the outward surface normal, so the
+          piece's base sits on the surface and it stands straight up. */}
+      <primitive
+        object={model}
+        position={[0, baseOffset, 0]}
+        scale={PIECE_SCALE}
+        {...handlers}
+        onPointerOver={(e: any) => {
+          e.stopPropagation();
+          document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = 'auto';
+        }}
+      />
+    </group>
+  );
+}
+
+/** A board square: the clickable quad plus its highlight and any piece. */
+function Square({
   file,
   rank,
   isLight,
@@ -134,94 +197,69 @@ function BoardSquare({
   piece: Piece | null;
   onClick: () => void;
 }) {
-  const meshRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
-  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
-
   const geometry = useMemo(() => createSquareGeometry(file, rank), [file, rank]);
   const center = useMemo(() => boardToSphere(file, rank), [file, rank]);
 
+  // Orientation that maps local +Y to the outward surface normal.
+  const quaternion = useMemo(() => {
+    const normal = center.clone().normalize();
+    return new THREE.Quaternion().setFromUnitVectors(UP, normal);
+  }, [center]);
+
+  const clickHandlers = usePointerClick(onClick);
+
   let color: string;
-  if (isSelected) {
-    color = '#f7c948';
-  } else if (isValidMove) {
-    color = '#7bc96f';
-  } else if (isLastMove) {
-    color = '#b8d4e3';
-  } else if (hovered) {
-    color = isLight ? '#f0d9b5' : '#b58863';
-  } else {
-    color = isLight ? '#f0d9b5' : '#b58863';
-  }
+  if (isSelected) color = '#f7c948';
+  else if (isLastMove) color = isLight ? '#cdd98a' : '#a3a55a';
+  else if (hovered) color = isLight ? '#f7e3c0' : '#c2966f';
+  else color = isLight ? '#f0d9b5' : '#b58863';
 
   return (
     <group>
       <mesh
-        ref={meshRef}
         geometry={geometry}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          pointerDownPos.current = { x: e.clientX, y: e.clientY };
-        }}
-        onPointerUp={(e) => {
-          e.stopPropagation();
-          if (pointerDownPos.current) {
-            const dx = e.clientX - pointerDownPos.current.x;
-            const dy = e.clientY - pointerDownPos.current.y;
-            if (dx * dx + dy * dy < 25) {
-              onClick();
-            }
-          }
-          pointerDownPos.current = null;
-        }}
-        onPointerOver={(e) => {
+        {...clickHandlers}
+        onPointerOver={(e: any) => {
           e.stopPropagation();
           setHovered(true);
-          document.body.style.cursor = 'pointer';
         }}
-        onPointerOut={() => {
-          setHovered(false);
-          document.body.style.cursor = 'auto';
-        }}
+        onPointerOut={() => setHovered(false)}
       >
-        <meshStandardMaterial
-          color={color}
-          side={THREE.DoubleSide}
-          roughness={0.7}
-          metalness={0.1}
-        />
+        <meshStandardMaterial color={color} side={THREE.DoubleSide} roughness={0.8} metalness={0.05} />
       </mesh>
 
-      {isValidMove && !piece && (
-        <mesh position={center.clone().multiplyScalar(1.01)}>
-          <sphereGeometry args={[0.08, 16, 16]} />
-          <meshStandardMaterial color="#4a7" transparent opacity={0.8} />
-        </mesh>
+      {/* Move markers: a flat disc on an empty target, a ring on a capture. */}
+      {isValidMove && (
+        <group position={center.clone().multiplyScalar(1.012)} quaternion={quaternion}>
+          {piece ? (
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <torusGeometry args={[0.34, 0.045, 12, 28]} />
+              <meshStandardMaterial color="#e94560" emissive="#e94560" emissiveIntensity={0.4} />
+            </mesh>
+          ) : (
+            <mesh>
+              <cylinderGeometry args={[0.13, 0.13, 0.03, 20]} />
+              <meshStandardMaterial color="#3fa34d" emissive="#3fa34d" emissiveIntensity={0.5} />
+            </mesh>
+          )}
+        </group>
       )}
 
       {piece && (
-        <Html
-          position={center.clone().multiplyScalar(1.05)}
-          center
-          style={{
-            fontSize: '28px',
-            userSelect: 'none',
-            pointerEvents: 'none',
-            textShadow: piece.color === 'white'
-              ? '0 0 4px rgba(0,0,0,0.8)'
-              : '0 0 4px rgba(255,255,255,0.5)',
-            filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))',
-          }}
-          zIndexRange={[10, 0]}
-        >
-          {PIECE_SYMBOLS[piece.color][piece.type]}
-        </Html>
+        <PieceModel
+          type={piece.type}
+          color={piece.color}
+          quaternion={quaternion}
+          center={center}
+          onClick={onClick}
+        />
       )}
     </group>
   );
 }
 
-/** Coordinate labels around the equator and along a meridian. */
+/** Coordinate labels floating just off the surface. */
 function BoardLabels() {
   const labels: React.ReactNode[] = [];
   const files = 'abcdefgh';
@@ -229,119 +267,83 @@ function BoardLabels() {
   for (let f = 0; f < 8; f++) {
     const pos = boardToSphere(f, -0.6);
     labels.push(
-      <Text
-        key={`file-${f}`}
-        position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]}
-        fontSize={0.2}
-        color="#888"
-        anchorX="center"
-        anchorY="middle"
-      >
+      <Text key={`file-${f}`} position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]} fontSize={0.2} color="#888" anchorX="center" anchorY="middle">
         {files[f]}
-      </Text>
+      </Text>,
     );
   }
-
   for (let r = 0; r < 8; r++) {
     const pos = boardToSphere(-0.6, r);
     labels.push(
-      <Text
-        key={`rank-${r}`}
-        position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]}
-        fontSize={0.2}
-        color="#888"
-        anchorX="center"
-        anchorY="middle"
-      >
+      <Text key={`rank-${r}`} position={[pos.x * 1.12, pos.y * 1.12, pos.z * 1.12]} fontSize={0.2} color="#888" anchorX="center" anchorY="middle">
         {String(r + 1)}
-      </Text>
+      </Text>,
     );
   }
-
   return <>{labels}</>;
 }
 
 /** The full 3D sphere board scene. */
-function SphereBoardScene({
-  gameState,
-  playerColor,
-  validMoves,
-  selectedSquare,
-  onSquareClick,
-}: ChessSphereProps) {
+function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick }: ChessSphereProps) {
   const lastMove = gameState.moveHistory.length > 0
     ? gameState.moveHistory[gameState.moveHistory.length - 1]
     : null;
 
   return (
     <>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 10, 5]} intensity={0.8} />
-      <directionalLight position={[-5, -5, -5]} intensity={0.3} />
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[5, 10, 5]} intensity={0.9} />
+      <directionalLight position={[-5, -4, -6]} intensity={0.35} />
 
-      {/* Transparent inner sphere for reference */}
-      <mesh>
-        <sphereGeometry args={[SPHERE_RADIUS * 0.98, 64, 64]} />
-        <meshStandardMaterial
-          color="#2a2a3e"
-          transparent
-          opacity={0.3}
-          side={THREE.BackSide}
-        />
-      </mesh>
+      <group rotation={[BOARD_TILT_X, 0, 0]}>
+        {/* Solid inner sphere so the far side doesn't show through. */}
+        <mesh>
+          <sphereGeometry args={[SPHERE_RADIUS * 0.985, 64, 64]} />
+          <meshStandardMaterial color="#23233a" roughness={0.9} metalness={0.05} />
+        </mesh>
 
-      {/* Board squares */}
-      {Array.from({ length: 8 }, (_, file) =>
-        Array.from({ length: 8 }, (_, rank) => {
-          const isLight = (file + rank) % 2 === 0;
-          const pos: Position = { file, rank };
-          const isSelected = selectedSquare?.file === file && selectedSquare?.rank === rank;
-          const isValidMove = validMoves.some(m => m.to.file === file && m.to.rank === rank);
-          const isLastMove = lastMove
-            ? (lastMove.from.file === file && lastMove.from.rank === rank) ||
-            (lastMove.to.file === file && lastMove.to.rank === rank)
-            : false;
+        {Array.from({ length: 8 }, (_, file) =>
+          Array.from({ length: 8 }, (_, rank) => {
+            const isLight = (file + rank) % 2 === 0;
+            const pos: Position = { file, rank };
+            const isSelected = selectedSquare?.file === file && selectedSquare?.rank === rank;
+            const isValidMove = validMoves.some((m) => m.to.file === file && m.to.rank === rank);
+            const isLastMove = lastMove
+              ? (lastMove.from.file === file && lastMove.from.rank === rank) ||
+                (lastMove.to.file === file && lastMove.to.rank === rank)
+              : false;
 
-          return (
-            <BoardSquare
-              key={`${file}-${rank}`}
-              file={file}
-              rank={rank}
-              isLight={isLight}
-              isSelected={isSelected}
-              isValidMove={isValidMove}
-              isLastMove={isLastMove}
-              piece={gameState.board[file][rank]}
-              onClick={() => onSquareClick(pos)}
-            />
-          );
-        })
-      )}
+            return (
+              <Square
+                key={`${file}-${rank}`}
+                file={file}
+                rank={rank}
+                isLight={isLight}
+                isSelected={isSelected}
+                isValidMove={isValidMove}
+                isLastMove={isLastMove}
+                piece={gameState.board[file][rank]}
+                onClick={() => onSquareClick(pos)}
+              />
+            );
+          }),
+        )}
 
-      <BoardLabels />
+        <BoardLabels />
+      </group>
 
-      <OrbitControls
-        enablePan={false}
-        minDistance={4}
-        maxDistance={12}
-        rotateSpeed={0.5}
-        enableDamping
-        dampingFactor={0.1}
-      />
+      <OrbitControls enablePan={false} minDistance={4.5} maxDistance={14} rotateSpeed={0.5} enableDamping dampingFactor={0.1} />
     </>
   );
 }
 
 export default function ChessSphere(props: ChessSphereProps) {
   return (
-    <Canvas
-      camera={{
-        position: [0, 3, 7],
-        fov: 50,
-      }}
-      style={{ width: '100%', height: '100%' }}
-    >
-      <SphereBoardScene {...props} />
+    <Canvas camera={{ position: [0, 2.5, 8], fov: 50 }} style={{ width: '100%', height: '100%' }}>
+      <color attach="background" args={['#0f0f1a']} />
+      <Suspense fallback={null}>
+        <SphereBoardScene {...props} />
+      </Suspense>
     </Canvas>
   );
 }
