@@ -88,7 +88,9 @@ function createSquareGeometry(file: number, rank: number, subdivisions = 8): THR
       positions.push(x, y, z);
       const len = Math.sqrt(x * x + y * y + z * z) || 1;
       normals.push(x / len, y / len, z / len);
-      uvs.push(j / subdivisions, i / subdivisions);
+      // Continuous global UVs (one tile per square) so the seamless wood grain
+      // flows unbroken across square borders and closes seamlessly at the wrap.
+      uvs.push(file + j / subdivisions, rank + i / subdivisions);
     }
   }
   for (let i = 0; i < subdivisions; i++) {
@@ -261,10 +263,11 @@ function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasP
 
   // Tint multiplies the shared wood texture, giving light/dark wood + highlights.
   let color: string;
-  if (isSelected) color = '#e7b84e';
-  else if (isLastMove) color = isLight ? '#c9b86a' : '#9a8540';
-  else if (hovered) color = isLight ? '#e7cf9f' : '#9c6a40';
-  else color = isLight ? '#cdb083' : '#6f4a2c';
+  if (isSelected) color = '#f0c659';
+  else if (isLastMove) color = isLight ? '#d8c878' : '#b09a4e';
+  else if (hovered) color = isLight ? '#f3e3bd' : '#b98a5c';
+  // Brighter light squares + lighter dark squares for clear contrast all around.
+  else color = isLight ? '#f0dcb0' : '#8a5c34';
 
   return (
     <group>
@@ -332,9 +335,11 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
 
   return (
     <>
-      <ambientLight intensity={0.35} />
-      <directionalLight position={[5, 10, 5]} intensity={0.9} />
-      <directionalLight position={[-6, -3, -6]} intensity={0.45} />
+      {/* Even illumination so squares read all the way around the sphere. */}
+      <ambientLight intensity={0.7} />
+      <hemisphereLight color="#fff3e0" groundColor="#6b5a44" intensity={0.6} />
+      <directionalLight position={[5, 10, 5]} intensity={0.55} />
+      <directionalLight position={[-6, -3, -6]} intensity={0.4} />
 
       <Environment resolution={256} frames={1}>
         <Lightformer intensity={3} position={[0, 4, -6]} scale={[12, 6, 1]} color="#fff6e8" />
