@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Text, useGLTF } from '@react-three/drei';
+import { OrbitControls, Text, useGLTF, Environment, Lightformer } from '@react-three/drei';
 import * as THREE from 'three';
 import type { GameState, Position, Move, Color, Piece, PieceType } from 'spherical-chess-shared';
 
@@ -143,10 +143,19 @@ function PieceModel({
     clone.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (mesh.isMesh) {
-        const mat = new THREE.MeshStandardMaterial({
+        // These glb meshes ship without normals, so the surface can't be lit
+        // (it looks like a flat silhouette). Generate smooth normals so the
+        // form actually catches the light.
+        if (!mesh.geometry.attributes.normal) mesh.geometry.computeVertexNormals();
+        // Glossy lacquered look: a polished clear-coat over the base colour.
+        // The clear-coat reflects the studio Environment for the sleek sheen.
+        const mat = new THREE.MeshPhysicalMaterial({
           color: new THREE.Color(color === 'white' ? WHITE_COLOR : BLACK_COLOR),
-          roughness: 0.45,
-          metalness: 0.25,
+          roughness: 0.32,
+          metalness: 0.15,
+          clearcoat: 1,
+          clearcoatRoughness: 0.08,
+          envMapIntensity: 1.3,
         });
         mesh.material = mat;
       }
@@ -291,9 +300,18 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
 
   return (
     <>
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[5, 10, 5]} intensity={0.9} />
-      <directionalLight position={[-5, -4, -6]} intensity={0.35} />
+      <ambientLight intensity={0.18} />
+      <directionalLight position={[5, 10, 5]} intensity={1.1} />
+      <directionalLight position={[-6, -3, -6]} intensity={0.3} />
+
+      {/* Local studio environment: gives the clear-coat its reflections and
+          soft image-based lighting without fetching any HDRI over the network. */}
+      <Environment resolution={256} frames={1}>
+        <Lightformer intensity={3} position={[0, 4, -6]} scale={[12, 6, 1]} color="#fff6e8" />
+        <Lightformer intensity={1.4} position={[-6, 2, 4]} scale={[6, 6, 1]} color="#bcd0ff" />
+        <Lightformer intensity={1.4} position={[6, 1, 4]} scale={[6, 6, 1]} color="#ffd9c2" />
+        <Lightformer intensity={1} position={[0, -5, 2]} scale={[10, 4, 1]} color="#8892b0" />
+      </Environment>
 
       <group rotation={[BOARD_TILT_X, 0, 0]}>
         {/* Solid inner sphere so the far side doesn't show through. */}
