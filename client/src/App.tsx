@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import ChessSphere from './three/ChessSphere';
+import ChessSphere, { type Quality } from './three/ChessSphere';
 import GameUI, { MoveHistory } from './components/GameUI';
 import Lobby from './components/Lobby';
 import WaitingRoom from './components/WaitingRoom';
@@ -17,6 +17,14 @@ import {
 
 type Screen = 'lobby' | 'waiting' | 'game';
 
+/** Default to lighter pieces on phones / low-core machines, HD elsewhere. */
+function defaultQuality(): Quality {
+  if (typeof navigator === 'undefined') return 'high';
+  const lowCores = (navigator.hardwareConcurrency ?? 8) <= 4;
+  const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 700;
+  return lowCores || smallScreen ? 'fast' : 'high';
+}
+
 export default function App() {
   const socket = useSocket();
   const [screen, setScreen] = useState<Screen>('lobby');
@@ -24,6 +32,7 @@ export default function App() {
   const [currentValidMoves, setCurrentValidMoves] = useState<Move[]>([]);
   const [isLocalGame, setIsLocalGame] = useState(false);
   const [localState, setLocalState] = useState<GameState | null>(null);
+  const [quality, setQuality] = useState<Quality>(defaultQuality);
 
   const gameState = isLocalGame ? localState : socket.gameState;
   const playerColor = isLocalGame ? (localState?.turn ?? null) : socket.playerColor;
@@ -123,7 +132,20 @@ export default function App() {
           validMoves={currentValidMoves}
           selectedSquare={selectedSquare}
           onSquareClick={handleSquareClick}
+          quality={quality}
         />
+        <button
+          onClick={() => setQuality((q) => (q === 'high' ? 'fast' : 'high'))}
+          title="Toggle piece detail"
+          style={{
+            position: 'absolute', left: 16, bottom: 16, zIndex: 100,
+            padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+            background: 'rgba(20,18,24,0.8)', color: '#ece6d8',
+            border: '1px solid rgba(236,230,216,0.2)', borderRadius: 6,
+          }}
+        >
+          Pieces: {quality === 'high' ? 'High' : 'Fast'}
+        </button>
         <GameUI
           gameState={gameState}
           playerColor={isLocalGame ? gameState.turn : playerColor}
