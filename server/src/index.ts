@@ -11,6 +11,7 @@ import type {
   ServerToClientEvents,
   Move,
   Position,
+  Color,
 } from 'spherical-chess-shared';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -88,6 +89,8 @@ io.on('connection', (socket) => {
       return;
     }
     socket.join(roomId);
+    // The joiner of a private game is always black (creator is white).
+    socket.emit('matchFound', roomId, 'black' as Color);
     io.to(roomId).emit('gameStart', room);
   });
 

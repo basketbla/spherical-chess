@@ -57,6 +57,8 @@ export function useSocket(): UseSocketReturn {
 
     socket.on('gameCreated', (newRoom: GameRoom) => {
       setRoom(newRoom);
+      // The creator of a private game is always white.
+      setPlayerColor('white' as Color);
     });
 
     socket.on('matchFound', (roomId: string, color: Color) => {
@@ -68,11 +70,10 @@ export function useSocket(): UseSocketReturn {
       setGameState(newRoom.state);
       setGameOver(false);
       setOpponentDisconnected(false);
-      // If color wasn't set by matchFound (private game), determine from room
-      if (!playerColor) {
-        // The creator is always white in private games
-        setPlayerColor('white' as Color);
-      }
+      // Color is set authoritatively by the server via `matchFound` (matchmaking
+      // + private-game joiner) or `gameCreated` (private-game creator) — never
+      // guessed here, otherwise the stale `playerColor` closure forced everyone
+      // to white.
     });
 
     socket.on('gameUpdate', (state: GameState, _move: Move) => {
