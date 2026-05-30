@@ -1,0 +1,42 @@
+name: Deploy frontend (Netlify)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - client/**
+      - shared/**
+      - netlify.toml
+      - package.json
+      - package-lock.json
+      - .github/workflows/deploy-frontend.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      # Backend origin baked into the client bundle (see useSocket.ts).
+      VITE_SERVER_URL: https://spherical-chess-api.fly.dev
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: 06d5f507-047f-4e32-9c7a-329bf26c2012
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=shared
+      - run: npm run build --workspace=client
+      - name: Deploy to Netlify
+        run: >-
+          npx --yes netlify-cli@26 deploy --prod
+          --dir=client/dist
+          --site "$NETLIFY_SITE_ID"
+          --filter spherical-chess-client
+          --message "CI: ${{ github.sha }}"
