@@ -5,3 +5,6 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+
+# Netlify local link state
+.netlify
