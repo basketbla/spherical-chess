@@ -17,9 +17,10 @@ interface ChessSphereProps {
   animatedMove: AnimatedMove | null;
 }
 
-const SPHERE_RADIUS = 3;
+export const SPHERE_RADIUS = 3;
 const UP = new THREE.Vector3(0, 1, 0);
-const BOARD_TILT_X = -1.97;
+export const BOARD_TILT_X = -1.97;
+export const WOOD_TEXTURE_PATH = '/textures/wood_diffuse_1k.jpg';
 const MOVE_ANIM_SECONDS = 0.34;
 const WOOD_TEXTURE = '/textures/wood_diffuse_1k.jpg';
 
@@ -70,7 +71,7 @@ for (let f = 0; f < 8; f++) {
 }
 
 /** Subdivided quad on the sphere surface for a single square (with UVs). */
-function createSquareGeometry(file: number, rank: number, subdivisions = 8): THREE.BufferGeometry {
+export function createSquareGeometry(file: number, rank: number, subdivisions = 8): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
   const normals: number[] = [];
@@ -267,7 +268,8 @@ function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasP
   else if (isLastMove) color = isLight ? '#d8c878' : '#b09a4e';
   else if (hovered) color = isLight ? '#f3e3bd' : '#b98a5c';
   // Brighter light squares + lighter dark squares for clear contrast all around.
-  else color = isLight ? '#f0dcb0' : '#8a5c34';
+  // Tints multiply the (fairly dim) wood map, so we push them bright.
+  else color = isLight ? '#ffeecb' : '#b97a44';
 
   return (
     <group>
@@ -277,9 +279,21 @@ function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasP
         onPointerOver={(e: any) => { e.stopPropagation(); setHovered(true); }}
         onPointerOut={() => setHovered(false)}
       >
-        {/* envMapIntensity≈0: the matte board ignores the (one-sided) studio
-            environment so it's lit evenly by ambient/hemisphere all around. */}
-        <meshStandardMaterial map={woodMap} color={color} side={THREE.DoubleSide} roughness={0.7} metalness={0} envMapIntensity={0.12} />
+        {/* The board is mostly *emissive*: emissive light doesn't depend on light
+            direction, so it's perfectly even across the whole sphere — no lit/dark
+            half — and it's independent of the canvas exposure that the pieces need.
+            envMapIntensity 0 keeps the one-sided studio env out of the board too. */}
+        <meshStandardMaterial
+          map={woodMap}
+          color={color}
+          emissive={color}
+          emissiveMap={woodMap}
+          emissiveIntensity={0.55}
+          side={THREE.DoubleSide}
+          roughness={0.75}
+          metalness={0}
+          envMapIntensity={0}
+        />
       </mesh>
 
       {isValidMove && (
@@ -343,11 +357,12 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
 
   return (
     <>
-      {/* Even illumination so squares read all the way around the sphere. */}
-      <ambientLight intensity={0.8} />
-      <hemisphereLight color="#fff3e0" groundColor="#6b5a44" intensity={0.6} />
-      <directionalLight position={[5, 10, 5]} intensity={0.4} />
-      <directionalLight position={[-6, -3, -6]} intensity={0.3} />
+      {/* The board carries its own brightness via emissive (see Square). No
+          positioned/directional light — on a sphere it only lights one hemisphere
+          and reintroduces a lit/dark half. Ambient + hemisphere stay even all
+          around, and the pieces get their form and sheen from the Environment IBL. */}
+      <ambientLight intensity={0.7} />
+      <hemisphereLight color="#fff3e0" groundColor="#8a7558" intensity={0.35} />
 
       <Environment resolution={256} frames={1}>
         <Lightformer intensity={3} position={[0, 4, -6]} scale={[12, 6, 1]} color="#fff6e8" />
@@ -359,7 +374,7 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
       <group rotation={[BOARD_TILT_X, 0, 0]}>
         <mesh>
           <sphereGeometry args={[SPHERE_RADIUS * 0.985, 64, 64]} />
-          <meshStandardMaterial color="#2a2018" roughness={0.9} metalness={0} envMapIntensity={0.15} />
+          <meshStandardMaterial color="#3a2c1e" emissive="#3a2c1e" emissiveIntensity={0.5} roughness={0.9} metalness={0} envMapIntensity={0} />
         </mesh>
 
         {Array.from({ length: 8 }, (_, file) =>
