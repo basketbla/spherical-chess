@@ -122,6 +122,20 @@ export default function App() {
     }
   }, [isLocalGame, socket]);
 
+  // Exit to the main menu from anywhere in a game (including after it's over).
+  const handleLeaveGame = useCallback(() => {
+    if (isLocalGame) {
+      setIsLocalGame(false);
+      setLocalState(null);
+    } else {
+      socket.leaveGame();
+    }
+    setSelectedSquare(null);
+    setCurrentValidMoves([]);
+    setViewPly(null);
+    setScreen('lobby');
+  }, [isLocalGame, socket]);
+
   if (screen === 'lobby') {
     return (
       <Lobby
@@ -157,7 +171,7 @@ export default function App() {
             animatedMove={viewingLive && settings.animate ? anim : null}
           />
         </div>
-        <SettingsPanel settings={settings} onChange={updateSettings} />
+        <SettingsPanel settings={settings} onChange={updateSettings} onLeaveGame={handleLeaveGame} />
         <GameUI
           gameState={liveState}
           playerColor={isLocalGame ? liveState.turn : playerColor}
@@ -167,6 +181,7 @@ export default function App() {
           }
           opponentDisconnected={isLocalGame ? false : socket.opponentDisconnected}
           onResign={handleResign}
+          onLeaveGame={handleLeaveGame}
           reviewing={!viewingLive}
           onReturnToLive={() => setViewPly(null)}
         />

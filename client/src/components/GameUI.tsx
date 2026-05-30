@@ -7,6 +7,7 @@ interface GameUIProps {
   gameOver: boolean;
   opponentDisconnected: boolean;
   onResign: () => void;
+  onLeaveGame: () => void;
   reviewing: boolean;
   onReturnToLive: () => void;
 }
@@ -33,7 +34,7 @@ function getStatusText(state: GameState, playerColor: Color | null): string {
 }
 
 export default function GameUI({
-  gameState, playerColor, gameOver, opponentDisconnected, onResign, reviewing, onReturnToLive,
+  gameState, playerColor, gameOver, opponentDisconnected, onResign, onLeaveGame, reviewing, onReturnToLive,
 }: GameUIProps) {
   const isMyTurn = gameState.turn === playerColor;
   const statusText = getStatusText(gameState, playerColor);
@@ -71,9 +72,10 @@ export default function GameUI({
         }}>
           Playing {playerColor}
         </div>
-        {!gameOver && (
-          <button className="btn btn--danger btn--sm" onClick={onResign}>Resign</button>
-        )}
+        {gameOver
+          ? <button className="btn btn--primary btn--sm" onClick={onLeaveGame}>Back to menu</button>
+          : <button className="btn btn--danger btn--sm" onClick={onResign}>Resign</button>
+        }
       </div>
     </div>
   );

@@ -30,6 +30,7 @@ export interface UseSocketReturn {
   makeMove: (move: Move) => void;
   requestValidMoves: (position: Position) => void;
   resign: () => void;
+  leaveGame: () => void;
   clearError: () => void;
 }
 
@@ -154,6 +155,19 @@ export function useSocket(): UseSocketReturn {
     }
   }, [room]);
 
+  // Exit the current game: forfeit if still in progress (the server ignores a
+  // resign on a finished game), then clear all game state so we land back in the
+  // lobby without the screen-routing effect bouncing us into the game again.
+  const leaveGame = useCallback(() => {
+    if (room) socketRef.current?.emit('resign', room.id);
+    setRoom(null);
+    setGameState(null);
+    setPlayerColor(null);
+    setValidMoves([]);
+    setGameOver(false);
+    setOpponentDisconnected(false);
+  }, [room]);
+
   const clearError = useCallback(() => setError(null), []);
 
   return {
@@ -172,6 +186,7 @@ export function useSocket(): UseSocketReturn {
     makeMove,
     requestValidMoves,
     resign,
+    leaveGame,
     clearError,
   };
 }

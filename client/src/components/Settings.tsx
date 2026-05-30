@@ -4,10 +4,11 @@ import type { Settings } from '../settings';
 interface SettingsButtonProps {
   settings: Settings;
   onChange: (next: Settings) => void;
+  onLeaveGame: () => void;
 }
 
 /** A gear button that opens a small settings popover. */
-export default function SettingsPanel({ settings, onChange }: SettingsButtonProps) {
+export default function SettingsPanel({ settings, onChange, onLeaveGame }: SettingsButtonProps) {
   const [open, setOpen] = useState(false);
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
@@ -36,6 +37,15 @@ export default function SettingsPanel({ settings, onChange }: SettingsButtonProp
               <button className={settings.animate ? 'is-active' : ''} onClick={() => set('animate', true)}>On</button>
               <button className={!settings.animate ? 'is-active' : ''} onClick={() => set('animate', false)}>Off</button>
             </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--line)', marginTop: 16, paddingTop: 14 }}>
+            <button
+              className="btn btn--outline btn--sm btn--block"
+              onClick={() => { setOpen(false); onLeaveGame(); }}
+            >
+              Leave game
+            </button>
           </div>
         </div>
       )}
