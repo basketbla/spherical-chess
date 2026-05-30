@@ -26,13 +26,14 @@ jobs:
       NETLIFY_SITE_ID: 06d5f507-047f-4e32-9c7a-329bf26c2012
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build --workspace=shared
-      - run: npm run build --workspace=client
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter spherical-chess-shared build
+      - run: pnpm --filter spherical-chess-client build
       - name: Deploy to Netlify
         run: >-
           npx --yes netlify-cli@26 deploy --prod

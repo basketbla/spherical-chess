@@ -129,7 +129,7 @@ persistent `playerId` (random, stored in `localStorage`) via the handshake
 | Component | Technology |
 |-----------|-----------|
 | Language | TypeScript |
-| Build tool | npm workspaces |
+| Build tool | pnpm workspaces |
 | Server runtime | Node.js |
 | Server framework | Express |
 | WebSocket | Socket.IO |

@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node.js 18+
-- npm 9+
+- pnpm 10+ (via corepack)
 - For mobile development: Expo CLI (`npm install -g expo-cli`)
 
 ## Quick Start
@@ -13,7 +13,7 @@
 From the root directory:
 
 ```bash
-npm install
+pnpm install
 ```
 
 This installs all dependencies for all workspaces (shared, server, client, mobile).
@@ -21,13 +21,13 @@ This installs all dependencies for all workspaces (shared, server, client, mobil
 ### 2. Build the shared package
 
 ```bash
-npm run build --workspace=shared
+pnpm --filter spherical-chess-shared build
 ```
 
 ### 3. Start the server
 
 ```bash
-npm run dev:server
+pnpm dev:server
 ```
 
 The server starts on `http://localhost:3001`.
@@ -37,7 +37,7 @@ The server starts on `http://localhost:3001`.
 In a new terminal:
 
 ```bash
-npm run dev:client
+pnpm dev:client
 ```
 
 The web client starts on `http://localhost:5173`.
@@ -47,7 +47,7 @@ The web client starts on `http://localhost:5173`.
 In a new terminal:
 
 ```bash
-npm run dev:mobile
+pnpm dev:mobile
 ```
 
 Scan the QR code with Expo Go on your phone, or press `i` for iOS simulator / `a` for Android emulator.
@@ -55,7 +55,7 @@ Scan the QR code with Expo Go on your phone, or press `i` for iOS simulator / `a
 ### Run everything at once
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 This starts both the server and web client concurrently.
@@ -83,17 +83,17 @@ The server URL is configured in the app UI.
 ### Server
 
 ```bash
-npm run build --workspace=shared
-npm run build --workspace=server
-npm start --workspace=server
+pnpm --filter spherical-chess-shared build
+pnpm --filter spherical-chess-server build
+pnpm --filter spherical-chess-server start
 ```
 
 ### Web Client
 
 ```bash
-npm run build --workspace=shared
-npm run build --workspace=client
-npm run preview --workspace=client  # to test the build
+pnpm --filter spherical-chess-shared build
+pnpm --filter spherical-chess-client build
+pnpm --filter spherical-chess-client preview  # to test the build
 ```
 
 The built files are in `client/dist/`.
@@ -162,7 +162,7 @@ spherical-chess/
 
 Make sure to build the shared package first:
 ```bash
-npm run build --workspace=shared
+pnpm --filter spherical-chess-shared build
 ```
 
 ### Socket connection fails
@@ -177,5 +177,5 @@ Ensure WebGL is supported in your browser. The 3D sphere view requires hardware-
 
 If the mobile app fails to find the shared package, ensure the workspace link is set up:
 ```bash
-npm install  # from root
+pnpm install  # from root
 ```

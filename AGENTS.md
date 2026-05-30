@@ -4,7 +4,7 @@ Guidance for AI agents (and humans) working in this repo.
 
 ## Orientation
 
-Monorepo (npm workspaces): `shared/` (game engine + types), `server/` (Express +
+Monorepo (pnpm workspaces): `shared/` (game engine + types), `server/` (Express +
 Socket.IO), `client/` (React + Three.js), `mobile/` (Expo). The client imports
 the engine as `spherical-chess-shared` (resolves to `shared/dist`, a build
 artifact — rebuild `shared` after editing it). See [docs/architecture.md](docs/architecture.md)
@@ -16,7 +16,7 @@ auto-deploy on push to `main`.
 
 ## Testing policy
 
-Tests live in `tests/` and run with `npm test` (Vitest). See
+Tests live in `tests/` and run with `pnpm test` (Vitest). See
 [docs/testing.md](docs/testing.md).
 
 **Write a new test for a feature or bugfix ONLY IF IT ACTUALLY MAKES SENSE.**

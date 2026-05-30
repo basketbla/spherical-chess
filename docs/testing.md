@@ -11,8 +11,8 @@ into the client or shipped in the server runtime image (excluded in
 ## Running
 
 ```bash
-npm test          # run the whole suite once
-npm run test:watch  # re-run on change (good while editing the engine)
+pnpm test          # run the whole suite once
+pnpm test:watch  # re-run on change (good while editing the engine)
 ```
 
 No build step is required: `tests/` import `spherical-chess-shared`, which

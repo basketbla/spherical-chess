@@ -2,29 +2,32 @@
   "name": "spherical-chess",
   "version": "1.0.0",
   "private": true,
-  "workspaces": [
-    "shared",
-    "server",
-    "client",
-    "mobile"
-  ],
   "scripts": {
-    "dev:server": "npm run dev --workspace=server",
-    "dev:client": "npm run dev --workspace=client",
-    "dev:mobile": "npm run start --workspace=mobile",
-    "build": "npm run build --workspace=shared && npm run build --workspace=server && npm run build --workspace=client",
-    "start": "npm run start --workspace=server",
+    "dev:server": "pnpm --filter spherical-chess-server dev",
+    "dev:client": "pnpm --filter spherical-chess-client dev",
+    "dev:mobile": "pnpm --filter spherical-chess-mobile start",
+    "build": "pnpm --filter spherical-chess-shared build && pnpm --filter spherical-chess-server build && pnpm --filter spherical-chess-client build",
+    "build:shared": "pnpm --filter spherical-chess-shared build",
+    "build:server": "pnpm --filter spherical-chess-server build",
+    "build:client": "pnpm --filter spherical-chess-client build",
+    "start": "pnpm --filter spherical-chess-server start",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\""
+    "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:client\""
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "@vitest/ui": "2.1.9",
     "concurrently": "^8.2.2",
     "typescript": "^5.4.0",
     "vitest": "^2.1.9"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
 }

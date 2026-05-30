@@ -33,13 +33,13 @@ This means there are no "edges" — every piece has full mobility everywhere on 
 
 ```bash
 # Install all dependencies
-npm install
+pnpm install
 
 # Build the shared game engine
-npm run build --workspace=shared
+pnpm --filter spherical-chess-shared build
 
 # Start server + web client
-npm run dev
+pnpm dev
 ```
 
 Then open http://localhost:5173 in your browser.

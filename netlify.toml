@@ -2,7 +2,7 @@
 # Monorepo: build the shared workspace first (client imports spherical-chess-shared
 # from shared/dist), then the client. Publish the Vite output.
 [build]
-  command = "npm run build --workspace=shared && npm run build --workspace=client"
+  command = "pnpm --filter spherical-chess-shared build && pnpm --filter spherical-chess-client build"
   publish = "client/dist"
 
 [build.environment]

@@ -17,7 +17,7 @@
     "react-native-gesture-handler": "~2.14.0",
     "three": "^0.161.0",
     "socket.io-client": "^4.7.4",
-    "spherical-chess-shared": "*"
+    "spherical-chess-shared": "workspace:*"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
