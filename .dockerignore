@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+.git
+**/dist
+# TypeScript incremental cache — if shipped, `tsc` thinks the build is up to date
+# and emits nothing, leaving shared/dist empty in the image.
+**/*.tsbuildinfo
+*.log
+.netlify
+# Client assets aren't needed for the backend image (client is on Netlify).
+client/public
+client/src
+client/index.html

@@ -6,9 +6,9 @@
   publish = "client/dist"
 
 [build.environment]
-  # Pin the socket/API origin to the Railway backend (client falls back to
+  # Pin the socket/API origin to the Fly backend (client falls back to
   # window.location.origin otherwise, which would be the Netlify host).
-  VITE_SERVER_URL = "https://spherical-chess-production.up.railway.app"
+  VITE_SERVER_URL = "https://spherical-chess-api.fly.dev"
   NODE_VERSION = "22"
 
 # SPA fallback so client-side routes resolve to index.html.
