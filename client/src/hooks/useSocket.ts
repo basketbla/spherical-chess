@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type {
-  ClientToServerEvents,
-  ServerToClientEvents,
-  GameRoom,
-  GameState,
-  Color,
-  Move,
-  Position,
+import {
+  GameStatus,
+  type ClientToServerEvents,
+  type ServerToClientEvents,
+  type GameRoom,
+  type GameState,
+  type Color,
+  type Move,
+  type Position,
 } from 'spherical-chess-shared';
+import { getPlayerId } from '../identity';
 
 type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -44,7 +46,9 @@ export function useSocket(): UseSocketReturn {
 
   useEffect(() => {
     const serverUrl = import.meta.env.VITE_SERVER_URL || window.location.origin;
-    const socket: GameSocket = io(serverUrl);
+    // Pass our persistent player id in the handshake so the server can bind our
+    // game seat to it and let us reconnect into an in-progress game.
+    const socket: GameSocket = io(serverUrl, { auth: { playerId: getPlayerId() } });
     socketRef.current = socket;
 
     socket.on('connect', () => setConnected(true));
@@ -90,6 +94,25 @@ export function useSocket(): UseSocketReturn {
 
     socket.on('opponentDisconnected', () => {
       setOpponentDisconnected(true);
+    });
+
+    socket.on('opponentReconnected', () => {
+      setOpponentDisconnected(false);
+    });
+
+    // Reconnected into an in-progress game (new socket, same player id).
+    socket.on('rejoinedGame', (rejoinedRoom: GameRoom, color: Color) => {
+      setRoom(rejoinedRoom);
+      setGameState(rejoinedRoom.state);
+      setPlayerColor(color);
+      setOpponentDisconnected(false);
+      const status = rejoinedRoom.state.status;
+      setGameOver(
+        status === GameStatus.Checkmate ||
+        status === GameStatus.Stalemate ||
+        status === GameStatus.Draw ||
+        status === GameStatus.Resigned,
+      );
     });
 
     return () => {

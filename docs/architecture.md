@@ -94,7 +94,9 @@ React Native Expo application for iOS and Android.
 
 ## Communication Protocol
 
-All real-time communication uses Socket.IO.
+All real-time communication uses Socket.IO. On connection the client passes a
+persistent `playerId` (random, stored in `localStorage`) via the handshake
+`auth` field; the server binds game seats to this id so players can reconnect.
 
 ### Client → Server Events
 
@@ -118,7 +120,9 @@ All real-time communication uses Socket.IO.
 | `gameOver` | `GameState` | Game has ended |
 | `validMoves` | `Move[]` | Legal moves for requested piece |
 | `error` | `string` | Error message |
-| `opponentDisconnected` | - | Opponent left the game |
+| `opponentDisconnected` | - | Opponent's connection dropped (grace period running) |
+| `opponentReconnected` | - | Opponent reconnected within the grace period |
+| `rejoinedGame` | `GameRoom, color` | Sent to a reconnecting player to restore their in-progress game |
 
 ## Technology Stack
 
@@ -135,3 +139,65 @@ All real-time communication uses Socket.IO.
 | Web bundler | Vite |
 | Mobile framework | React Native (Expo) |
 | Mobile 3D | expo-gl + expo-three |
+
+## Online Multiplayer: Trust Model & Known Limitations
+
+### What's solid
+
+The server is **authoritative**. Clients never send game state — only *move
+intents* (`makeMove(roomId, move)` where a `Move` is `{from, to, promotion}`).
+The server keeps the canonical `GameState` per room and broadcasts the result.
+
+A submitted move passes four server-side gates (`GameManager.makeMove`):
+1. Room exists.
+2. The socket's identity maps to a seat (white/black) in that room.
+3. It is that color's turn.
+4. The move is in the legal-move set recomputed from the server's own state
+   (shared `makeMove` → `getLegalMovesForPiece`), including check/mate/promotion.
+
+So you **cannot** inject an arbitrary game state — there is no event that
+accepts one — and you cannot make an illegal move or move out of turn or as the
+other player. Forging the move object doesn't help: an illegal one is dropped, a
+legal one yields the same state the server would have computed anyway.
+
+### Known limitations / gaps
+
+Ordered roughly by priority for the online feature.
+
+1. **Identity & reconnection** — *(partially addressed: persistent player ID)*.
+   Players now carry a random `playerId` persisted in `localStorage`, sent via
+   the Socket.IO handshake (`auth.playerId`). Seats are bound to `playerId`, so a
+   dropped player can reconnect (new socket, same id) and resume. On disconnect
+   the opponent is notified and a grace timer auto-resigns the absent player only
+   if they don't return within the window.
+   **Still missing:** the `playerId` is unauthenticated and trivially
+   spoofable — anyone who obtains another player's id can impersonate them. Real
+   security needs accounts/auth (deferred). It is identity, not authentication.
+
+2. **Durability — state is in-memory on a single instance.** `GameManager` holds
+   rooms in a plain `Map`. Active WebSocket connections keep the Fly machine
+   awake, but **any redeploy (every push, via CI) restarts the machine and wipes
+   all in-progress games.** No persistence (no DB/Redis), no crash recovery.
+
+3. **No horizontal scaling.** Socket.IO rooms + an in-memory `Map` only work on
+   one instance (`fly.toml` runs a single machine, `--ha=false`). Two machines
+   would mean two players in one game could land on different instances with
+   different state. Scaling out needs a Socket.IO adapter (e.g. Redis) plus a
+   shared/persistent game store, or sticky per-game routing.
+
+4. **No rate limiting / abuse controls.** `requestValidMoves` and `makeMove` each
+   run `getLegalMoves`, which simulates every pseudo-legal move and tests for
+   check — not free. A client can spam these (and `joinQueue`); easy DoS.
+
+5. **Rules engine is the entire trusted computing base.** Server safety equals
+   the correctness of the shared move generator (which has already had at least
+   one serious bug — the notation/`applyMove` recursion stack overflow). The
+   spherical move-gen needs a real test suite; a legality bug is a cheating vector.
+
+6. **No game clocks/timers**, no server-side enforcement of draw-by-repetition or
+   the 50-move rule, no spectator model, and no stored game history.
+
+7. **Minor:** `playerName` is unauthenticated (cosmetic impersonation); private
+   room IDs are an 8-char UUID slice (~32 bits — fine against casual guessing,
+   not cryptographically strong); a single `playerId` connecting from two tabs is
+   not handled specially (last connection wins the seat).

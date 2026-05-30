@@ -4,6 +4,7 @@ import { GameManager } from '../game/GameManager.js';
 
 interface QueueEntry {
   socket: Socket<ClientToServerEvents, ServerToClientEvents>;
+  playerId: string;
   playerName: string;
   joinedAt: number;
 }
@@ -25,12 +26,17 @@ export class Matchmaker {
     this.matchInterval = setInterval(() => this.tryMatch(), 2000);
   }
 
-  addToQueue(socket: Socket<ClientToServerEvents, ServerToClientEvents>, playerName: string): void {
-    // Remove if already in queue
-    this.removeFromQueue(socket.id);
+  addToQueue(
+    socket: Socket<ClientToServerEvents, ServerToClientEvents>,
+    playerId: string,
+    playerName: string,
+  ): void {
+    // Remove any existing entry for this player (e.g. a stale socket).
+    this.removeFromQueue(playerId);
 
     this.queue.push({
       socket,
+      playerId,
       playerName,
       joinedAt: Date.now(),
     });
@@ -39,8 +45,8 @@ export class Matchmaker {
     this.tryMatch();
   }
 
-  removeFromQueue(socketId: string): void {
-    this.queue = this.queue.filter(entry => entry.socket.id !== socketId);
+  removeFromQueue(playerId: string): void {
+    this.queue = this.queue.filter(entry => entry.playerId !== playerId);
   }
 
   private tryMatch(): void {
@@ -54,9 +60,9 @@ export class Matchmaker {
       const black = whiteFirst ? player2 : player1;
 
       const room = this.gameManager.createMatchedRoom(
-        white.socket.id,
+        white.playerId,
         white.playerName,
-        black.socket.id,
+        black.playerId,
         black.playerName,
       );
 

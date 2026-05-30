@@ -6,15 +6,41 @@ import {
 } from 'spherical-chess-shared';
 
 interface InternalRoom extends GameRoom {
-  whiteSocketId: string | null;
-  blackSocketId: string | null;
+  // Seats are bound to persistent player IDs (not socket IDs), so a player can
+  // drop their socket and reconnect with a new one without losing their seat.
+  whitePlayerId: string | null;
+  blackPlayerId: string | null;
 }
 
 export class GameManager {
   private rooms = new Map<string, InternalRoom>();
-  private playerRooms = new Map<string, string>(); // socketId -> roomId
+  private playerRooms = new Map<string, string>(); // playerId -> roomId
+  // playerId -> current live socketId. Absent means the player is disconnected.
+  private liveSockets = new Map<string, string>();
 
-  createRoom(socketId: string, playerName: string): GameRoom {
+  /** Record (or refresh) the live socket for a player. */
+  registerConnection(playerId: string, socketId: string): void {
+    this.liveSockets.set(playerId, socketId);
+  }
+
+  isConnected(playerId: string): boolean {
+    return this.liveSockets.has(playerId);
+  }
+
+  /**
+   * Mark a player disconnected. Guarded by socketId so a stale disconnect (from
+   * an old socket that was already superseded by a reconnect) doesn't clobber
+   * the newer live connection. Returns true if this was the current connection.
+   */
+  markDisconnected(playerId: string, socketId: string): boolean {
+    if (this.liveSockets.get(playerId) === socketId) {
+      this.liveSockets.delete(playerId);
+      return true;
+    }
+    return false;
+  }
+
+  createRoom(playerId: string, playerName: string): GameRoom {
     const id = uuidv4().slice(0, 8);
     const room: InternalRoom = {
       id,
@@ -22,31 +48,33 @@ export class GameManager {
       black: null,
       state: createInitialGameState(),
       createdAt: Date.now(),
-      whiteSocketId: socketId,
-      blackSocketId: null,
+      whitePlayerId: playerId,
+      blackPlayerId: null,
     };
     room.state.status = GameStatus.Waiting;
     this.rooms.set(id, room);
-    this.playerRooms.set(socketId, id);
+    this.playerRooms.set(playerId, id);
     return this.toPublicRoom(room);
   }
 
-  joinRoom(roomId: string, socketId: string, playerName: string): GameRoom | null {
+  joinRoom(roomId: string, playerId: string, playerName: string): GameRoom | null {
     const room = this.rooms.get(roomId);
-    if (!room || room.blackSocketId) return null;
+    if (!room || room.blackPlayerId) return null;
+    // Don't let the creator take both seats.
+    if (room.whitePlayerId === playerId) return null;
 
     room.black = playerName;
-    room.blackSocketId = socketId;
+    room.blackPlayerId = playerId;
     room.state.status = GameStatus.Active;
-    this.playerRooms.set(socketId, roomId);
+    this.playerRooms.set(playerId, roomId);
 
     return this.toPublicRoom(room);
   }
 
   createMatchedRoom(
-    whiteSocketId: string,
+    whitePlayerId: string,
     whiteName: string,
-    blackSocketId: string,
+    blackPlayerId: string,
     blackName: string,
   ): GameRoom {
     const id = uuidv4().slice(0, 8);
@@ -56,25 +84,25 @@ export class GameManager {
       black: blackName,
       state: createInitialGameState(),
       createdAt: Date.now(),
-      whiteSocketId,
-      blackSocketId,
+      whitePlayerId,
+      blackPlayerId,
     };
     this.rooms.set(id, room);
-    this.playerRooms.set(whiteSocketId, id);
-    this.playerRooms.set(blackSocketId, id);
+    this.playerRooms.set(whitePlayerId, id);
+    this.playerRooms.set(blackPlayerId, id);
     return this.toPublicRoom(room);
   }
 
   makeMove(
     roomId: string,
-    socketId: string,
+    playerId: string,
     move: Move,
   ): { state: GameState; move: Move } | null {
     const room = this.rooms.get(roomId);
     if (!room) return null;
 
     // Verify it's this player's turn
-    const playerColor = this.getPlayerColor(room, socketId);
+    const playerColor = this.getPlayerColor(room, playerId);
     if (!playerColor || playerColor !== room.state.turn) return null;
 
     const newState = applyGameMove(room.state, move);
@@ -84,51 +112,59 @@ export class GameManager {
     return { state: newState, move };
   }
 
-  getValidMoves(roomId: string, socketId: string, position: Position): Move[] {
+  getValidMoves(roomId: string, playerId: string, position: Position): Move[] {
     const room = this.rooms.get(roomId);
     if (!room) return [];
 
-    const playerColor = this.getPlayerColor(room, socketId);
+    const playerColor = this.getPlayerColor(room, playerId);
     if (!playerColor || playerColor !== room.state.turn) return [];
 
     return getLegalMovesForPiece(room.state, position);
   }
 
-  resign(roomId: string, socketId: string): GameState | null {
+  resign(roomId: string, playerId: string): GameState | null {
     const room = this.rooms.get(roomId);
     if (!room) return null;
 
-    const playerColor = this.getPlayerColor(room, socketId);
+    const playerColor = this.getPlayerColor(room, playerId);
     if (!playerColor) return null;
+    // Don't re-end an already-finished game.
+    if (this.isFinished(room.state.status)) return null;
 
     room.state.status = GameStatus.Resigned;
     room.state.winner = playerColor === Color.White ? Color.Black : Color.White;
     return room.state;
   }
 
-  getPlayerRoom(socketId: string): string | undefined {
-    return this.playerRooms.get(socketId);
+  getPlayerRoom(playerId: string): string | undefined {
+    return this.playerRooms.get(playerId);
   }
 
-  handleDisconnect(roomId: string, socketId: string): void {
+  /** The room (public view) + seat color for a reconnecting player, if any. */
+  getRejoinInfo(playerId: string): { room: GameRoom; color: Color } | null {
+    const roomId = this.playerRooms.get(playerId);
+    if (!roomId) return null;
     const room = this.rooms.get(roomId);
-    if (!room) return;
+    if (!room) return null;
+    const color = this.getPlayerColor(room, playerId);
+    if (!color) return null;
+    return { room: this.toPublicRoom(room), color };
+  }
 
-    if (room.state.status === GameStatus.Active || room.state.status === GameStatus.Check) {
-      const playerColor = this.getPlayerColor(room, socketId);
-      if (playerColor) {
-        room.state.status = GameStatus.Resigned;
-        room.state.winner = playerColor === Color.White ? Color.Black : Color.White;
-      }
-    }
+  isRoomActive(roomId: string): boolean {
+    const room = this.rooms.get(roomId);
+    return !!room && !this.isFinished(room.state.status);
+  }
 
-    this.playerRooms.delete(socketId);
-
-    // Clean up room if both disconnected
-    if (
-      (!room.whiteSocketId || !this.playerRooms.has(room.whiteSocketId)) &&
-      (!room.blackSocketId || !this.playerRooms.has(room.blackSocketId))
-    ) {
+  /** Clean up a player's room association after their game is finished. */
+  cleanupIfFinished(roomId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room || !this.isFinished(room.state.status)) return;
+    const whiteGone = !room.whitePlayerId || !this.liveSockets.has(room.whitePlayerId);
+    const blackGone = !room.blackPlayerId || !this.liveSockets.has(room.blackPlayerId);
+    if (whiteGone && blackGone) {
+      if (room.whitePlayerId) this.playerRooms.delete(room.whitePlayerId);
+      if (room.blackPlayerId) this.playerRooms.delete(room.blackPlayerId);
       this.rooms.delete(roomId);
     }
   }
@@ -140,14 +176,25 @@ export class GameManager {
   getActiveGames(): { id: string; players: number; status: string }[] {
     return Array.from(this.rooms.values()).map(room => ({
       id: room.id,
-      players: (room.whiteSocketId ? 1 : 0) + (room.blackSocketId ? 1 : 0),
+      players:
+        (room.whitePlayerId && this.liveSockets.has(room.whitePlayerId) ? 1 : 0) +
+        (room.blackPlayerId && this.liveSockets.has(room.blackPlayerId) ? 1 : 0),
       status: room.state.status,
     }));
   }
 
-  private getPlayerColor(room: InternalRoom, socketId: string): Color | null {
-    if (room.whiteSocketId === socketId) return Color.White;
-    if (room.blackSocketId === socketId) return Color.Black;
+  private isFinished(status: GameStatus): boolean {
+    return (
+      status === GameStatus.Checkmate ||
+      status === GameStatus.Stalemate ||
+      status === GameStatus.Draw ||
+      status === GameStatus.Resigned
+    );
+  }
+
+  private getPlayerColor(room: InternalRoom, playerId: string): Color | null {
+    if (room.whitePlayerId === playerId) return Color.White;
+    if (room.blackPlayerId === playerId) return Color.Black;
     return null;
   }
 

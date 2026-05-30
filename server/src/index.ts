@@ -47,25 +47,42 @@ app.get('/api/games', (_req, res) => {
   res.json(gameManager.getActiveGames());
 });
 
+// How long a disconnected player has to reconnect before they forfeit.
+const DISCONNECT_GRACE_MS = 60_000;
+
 io.on('connection', (socket) => {
-  console.log(`Player connected: ${socket.id}`);
+  // Stable, client-supplied identity (persisted in the client's localStorage).
+  // Falls back to socket.id for older clients that don't send one.
+  const playerId: string =
+    (socket.handshake.auth?.playerId as string | undefined) || socket.id;
+
+  console.log(`Player connected: socket=${socket.id} player=${playerId}`);
+  gameManager.registerConnection(playerId, socket.id);
+
+  // If this player is already seated in a game, restore it (reconnection).
+  const rejoin = gameManager.getRejoinInfo(playerId);
+  if (rejoin) {
+    socket.join(rejoin.room.id);
+    socket.emit('rejoinedGame', rejoin.room, rejoin.color);
+    socket.to(rejoin.room.id).emit('opponentReconnected');
+  }
 
   socket.on('joinQueue', (playerName: string) => {
-    matchmaker.addToQueue(socket, playerName);
+    matchmaker.addToQueue(socket, playerId, playerName);
   });
 
   socket.on('leaveQueue', () => {
-    matchmaker.removeFromQueue(socket.id);
+    matchmaker.removeFromQueue(playerId);
   });
 
   socket.on('createPrivateGame', (playerName: string) => {
-    const room = gameManager.createRoom(socket.id, playerName);
+    const room = gameManager.createRoom(playerId, playerName);
     socket.join(room.id);
     socket.emit('gameCreated', room);
   });
 
   socket.on('joinPrivateGame', (roomId: string, playerName: string) => {
-    const room = gameManager.joinRoom(roomId, socket.id, playerName);
+    const room = gameManager.joinRoom(roomId, playerId, playerName);
     if (!room) {
       socket.emit('error', 'Game not found or full');
       return;
@@ -75,7 +92,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('makeMove', (roomId: string, move: Move) => {
-    const result = gameManager.makeMove(roomId, socket.id, move);
+    const result = gameManager.makeMove(roomId, playerId, move);
     if (!result) {
       socket.emit('error', 'Invalid move');
       return;
@@ -87,25 +104,41 @@ io.on('connection', (socket) => {
   });
 
   socket.on('requestValidMoves', (roomId: string, position: Position) => {
-    const moves = gameManager.getValidMoves(roomId, socket.id, position);
+    const moves = gameManager.getValidMoves(roomId, playerId, position);
     socket.emit('validMoves', moves);
   });
 
   socket.on('resign', (roomId: string) => {
-    const result = gameManager.resign(roomId, socket.id);
+    const result = gameManager.resign(roomId, playerId);
     if (result) {
       io.to(roomId).emit('gameOver', result);
+      gameManager.cleanupIfFinished(roomId);
     }
   });
 
   socket.on('disconnect', () => {
-    console.log(`Player disconnected: ${socket.id}`);
-    matchmaker.removeFromQueue(socket.id);
+    console.log(`Player disconnected: socket=${socket.id} player=${playerId}`);
+    // Only act if this is the player's current connection (guards against a
+    // stale socket's disconnect firing after a fresh reconnect).
+    const wasCurrent = gameManager.markDisconnected(playerId, socket.id);
+    if (!wasCurrent) return;
 
-    const roomId = gameManager.getPlayerRoom(socket.id);
-    if (roomId) {
+    matchmaker.removeFromQueue(playerId);
+
+    const roomId = gameManager.getPlayerRoom(playerId);
+    if (roomId && gameManager.isRoomActive(roomId)) {
       io.to(roomId).emit('opponentDisconnected');
-      gameManager.handleDisconnect(roomId, socket.id);
+      // Grace period: forfeit only if they haven't reconnected by the deadline.
+      setTimeout(() => {
+        if (gameManager.isConnected(playerId)) return; // reconnected — no forfeit
+        const result = gameManager.resign(roomId, playerId);
+        if (result) {
+          io.to(roomId).emit('gameOver', result);
+          gameManager.cleanupIfFinished(roomId);
+        }
+      }, DISCONNECT_GRACE_MS);
+    } else if (roomId) {
+      gameManager.cleanupIfFinished(roomId);
     }
   });
 });

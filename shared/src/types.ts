@@ -87,6 +87,9 @@ export interface ServerToClientEvents {
   error: (message: string) => void;
   matchFound: (roomId: string, color: Color) => void;
   opponentDisconnected: () => void;
+  opponentReconnected: () => void;
+  // Sent to a reconnecting player to restore their in-progress game.
+  rejoinedGame: (room: GameRoom, color: Color) => void;
   validMoves: (moves: Move[]) => void;
 }
 
