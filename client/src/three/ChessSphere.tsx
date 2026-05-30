@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, useLayoutEffect, Suspense } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
-import { OrbitControls, Text, useGLTF, Environment, Lightformer } from '@react-three/drei';
+import { OrbitControls, Text, useGLTF, Environment, Lightformer, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import type { GameState, Position, Move, Color, Piece, PieceType } from 'spherical-chess-shared';
 
@@ -325,20 +325,23 @@ function BoardLabels() {
   for (let f = 0; f < 8; f++) {
     const pos = boardToSphere(f, 3.5);
     labels.push(
-      <Text key={`file-${f}`} position={[pos.x * 1.16, pos.y * 1.16, pos.z * 1.16]}
-        fontSize={0.28} color="#f0dcb0" outlineWidth={0.012} outlineColor="#1a1209" anchorX="center" anchorY="middle">
-        {files[f]}
-      </Text>,
+      // Billboard keeps the glyph facing the camera and upright from any angle.
+      <Billboard key={`file-${f}`} position={[pos.x * 1.16, pos.y * 1.16, pos.z * 1.16]}>
+        <Text fontSize={0.28} color="#f0dcb0" outlineWidth={0.012} outlineColor="#1a1209" anchorX="center" anchorY="middle">
+          {files[f]}
+        </Text>
+      </Billboard>,
     );
   }
   // Rank numbers run pole-to-pole along a single meridian.
   for (let r = 0; r < 8; r++) {
     const pos = boardToSphere(-0.7, r);
     labels.push(
-      <Text key={`rank-${r}`} position={[pos.x * 1.13, pos.y * 1.13, pos.z * 1.13]}
-        fontSize={0.22} color="#cfc09a" outlineWidth={0.01} outlineColor="#1a1209" anchorX="center" anchorY="middle">
-        {String(r + 1)}
-      </Text>,
+      <Billboard key={`rank-${r}`} position={[pos.x * 1.13, pos.y * 1.13, pos.z * 1.13]}>
+        <Text fontSize={0.22} color="#cfc09a" outlineWidth={0.01} outlineColor="#1a1209" anchorX="center" anchorY="middle">
+          {String(r + 1)}
+        </Text>
+      </Billboard>,
     );
   }
   return <>{labels}</>;

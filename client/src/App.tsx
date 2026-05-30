@@ -20,6 +20,9 @@ import {
 
 type Screen = 'lobby' | 'waiting' | 'game';
 
+// Horizontal space the move sidebar occupies (width 220 + right gap 16 + breathing room).
+const SIDEBAR_RESERVE = 248;
+
 export default function App() {
   const socket = useSocket();
   const [screen, setScreen] = useState<Screen>('lobby');
@@ -139,16 +142,21 @@ export default function App() {
 
   if (screen === 'game' && displayState && liveState) {
     return (
-      <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-        <ChessSphere
-          gameState={displayState}
-          playerColor={playerColor}
-          validMoves={viewingLive ? currentValidMoves : []}
-          selectedSquare={viewingLive ? selectedSquare : null}
-          onSquareClick={handleSquareClick}
-          quality={settings.quality}
-          animatedMove={viewingLive && settings.animate ? anim : null}
-        />
+      <div style={{ width: '100%', height: '100%', position: 'relative', background: '#0f0f1a' }}>
+        {/* Reserve the sidebar's footprint so the sphere centers in the space to
+            its left rather than under it. The canvas bg matches the root bg, so
+            the reserved strip is seamless. */}
+        <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: SIDEBAR_RESERVE }}>
+          <ChessSphere
+            gameState={displayState}
+            playerColor={playerColor}
+            validMoves={viewingLive ? currentValidMoves : []}
+            selectedSquare={viewingLive ? selectedSquare : null}
+            onSquareClick={handleSquareClick}
+            quality={settings.quality}
+            animatedMove={viewingLive && settings.animate ? anim : null}
+          />
+        </div>
         <SettingsPanel settings={settings} onChange={updateSettings} />
         <GameUI
           gameState={liveState}
