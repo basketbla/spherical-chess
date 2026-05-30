@@ -1,0 +1,18 @@
+# Frontend (client) deploy on Netlify. Backend stays on Railway.
+# Monorepo: build the shared workspace first (client imports spherical-chess-shared
+# from shared/dist), then the client. Publish the Vite output.
+[build]
+  command = "npm run build --workspace=shared && npm run build --workspace=client"
+  publish = "client/dist"
+
+[build.environment]
+  # Pin the socket/API origin to the Railway backend (client falls back to
+  # window.location.origin otherwise, which would be the Netlify host).
+  VITE_SERVER_URL = "https://spherical-chess-production.up.railway.app"
+  NODE_VERSION = "22"
+
+# SPA fallback so client-side routes resolve to index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
