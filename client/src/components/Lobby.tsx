@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Rules from './Rules';
 
 interface LobbyProps {
   connected: boolean;
@@ -25,6 +26,7 @@ export default function Lobby({
   const [roomCode, setRoomCode] = useState('');
   const [tab, setTab] = useState<'quick' | 'private' | 'local'>('quick');
   const [inQueue, setInQueue] = useState(false);
+  const [showRules, setShowRules] = useState(false);
 
   const playerName = name.trim() || 'Player';
 
@@ -137,11 +139,19 @@ export default function Lobby({
           )}
         </div>
 
-        <a className="lobby-watch" href={VIDEO_URL} target="_blank" rel="noopener noreferrer">
-          <span className="lobby-watch-icon">▶</span>
-          Watch how it works
-        </a>
+        <div className="lobby-links">
+          <button className="lobby-watch lobby-watch--btn" onClick={() => setShowRules(true)}>
+            <span className="lobby-watch-icon">❔</span>
+            How to play
+          </button>
+          <a className="lobby-watch" href={VIDEO_URL} target="_blank" rel="noopener noreferrer">
+            <span className="lobby-watch-icon">▶</span>
+            Watch the video
+          </a>
+        </div>
       </div>
+
+      {showRules && <Rules onClose={() => setShowRules(false)} />}
 
       <style>{`
         .lobby-root {
@@ -361,6 +371,12 @@ export default function Lobby({
         }
         .lobby-watch:hover { color: #ece6d8; border-bottom-color: rgba(201,167,106,0.6); }
         .lobby-watch-icon { font-size: 10px; color: #c9a76a; }
+        .lobby-links { display: flex; gap: 26px; margin-top: 26px; }
+        .lobby-links .lobby-watch { margin-top: 0; }
+        .lobby-watch--btn {
+          appearance: none; background: none; border: none; padding-bottom: 2px;
+          cursor: pointer; font-family: inherit;
+        }
         @keyframes lobby-spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>

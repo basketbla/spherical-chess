@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import ChessSphere, { type AnimatedMove } from './three/ChessSphere';
+import ChessSphere, { type AnimatedMove, BACKGROUND_COLOR } from './three/ChessSphere';
 import GameUI from './components/GameUI';
 import Sidebar from './components/Sidebar';
 import SettingsPanel from './components/Settings';
@@ -7,6 +7,7 @@ import Lobby from './components/Lobby';
 import WaitingRoom from './components/WaitingRoom';
 import { useSocket } from './hooks/useSocket';
 import { loadSettings, saveSettings, type Settings } from './settings';
+import { scenarioFromUrl } from './debugScenarios';
 import {
   type Position,
   type Move,
@@ -25,11 +26,14 @@ const SIDEBAR_RESERVE = 248;
 
 export default function App() {
   const socket = useSocket();
-  const [screen, setScreen] = useState<Screen>('lobby');
+  // Debug: ?scenario=check|checkmate boots straight into a local game with a
+  // preset position (see debugScenarios.ts).
+  const debugScenario = useMemo(() => scenarioFromUrl(), []);
+  const [screen, setScreen] = useState<Screen>(debugScenario ? 'game' : 'lobby');
   const [selectedSquare, setSelectedSquare] = useState<Position | null>(null);
   const [currentValidMoves, setCurrentValidMoves] = useState<Move[]>([]);
-  const [isLocalGame, setIsLocalGame] = useState(false);
-  const [localState, setLocalState] = useState<GameState | null>(null);
+  const [isLocalGame, setIsLocalGame] = useState(!!debugScenario);
+  const [localState, setLocalState] = useState<GameState | null>(debugScenario);
   const [settings, setSettings] = useState<Settings>(loadSettings);
 
   // Which ply we're viewing; null = follow the live position.
@@ -156,7 +160,7 @@ export default function App() {
 
   if (screen === 'game' && displayState && liveState) {
     return (
-      <div style={{ width: '100%', height: '100%', position: 'relative', background: '#0f0f1a' }}>
+      <div style={{ width: '100%', height: '100%', position: 'relative', background: BACKGROUND_COLOR }}>
         {/* Reserve the sidebar's footprint so the sphere centers in the space to
             its left rather than under it. The canvas bg matches the root bg, so
             the reserved strip is seamless. */}
@@ -169,6 +173,7 @@ export default function App() {
             onSquareClick={handleSquareClick}
             quality={settings.quality}
             animatedMove={viewingLive && settings.animate ? anim : null}
+            showLabels={settings.showLabels}
           />
         </div>
         <SettingsPanel settings={settings} onChange={updateSettings} onLeaveGame={handleLeaveGame} />

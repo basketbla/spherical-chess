@@ -3,30 +3,31 @@ import type { Quality } from './three/ChessSphere';
 export interface Settings {
   quality: Quality;
   animate: boolean;
+  showLabels: boolean;
 }
 
 const KEY = 'spherical-chess-settings';
 
-/** Lighter pieces on phones / low-core machines, HD elsewhere. */
-function defaultQuality(): Quality {
-  if (typeof navigator === 'undefined') return 'high';
-  const lowCores = (navigator.hardwareConcurrency ?? 8) <= 4;
-  const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 700;
-  return lowCores || smallScreen ? 'fast' : 'high';
-}
+export const DEFAULT_SETTINGS: Settings = {
+  // High-quality pieces by default everywhere; users can drop to "fast" in
+  // settings if performance is poor.
+  quality: 'high',
+  animate: true,
+  showLabels: true,
+};
 
 export function loadSettings(): Settings {
-  const fallback: Settings = { quality: defaultQuality(), animate: true };
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return fallback;
+    if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw);
     return {
-      quality: parsed.quality === 'fast' || parsed.quality === 'high' ? parsed.quality : fallback.quality,
-      animate: typeof parsed.animate === 'boolean' ? parsed.animate : fallback.animate,
+      quality: parsed.quality === 'fast' || parsed.quality === 'high' ? parsed.quality : DEFAULT_SETTINGS.quality,
+      animate: typeof parsed.animate === 'boolean' ? parsed.animate : DEFAULT_SETTINGS.animate,
+      showLabels: typeof parsed.showLabels === 'boolean' ? parsed.showLabels : DEFAULT_SETTINGS.showLabels,
     };
   } catch {
-    return fallback;
+    return { ...DEFAULT_SETTINGS };
   }
 }
 

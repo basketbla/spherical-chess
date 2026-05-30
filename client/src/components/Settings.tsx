@@ -31,11 +31,19 @@ export default function SettingsPanel({ settings, onChange, onLeaveGame }: Setti
             </div>
           </div>
 
-          <div>
+          <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 13, marginBottom: 8 }}>Move animation</div>
             <div className="segmented">
               <button className={settings.animate ? 'is-active' : ''} onClick={() => set('animate', true)}>On</button>
               <button className={!settings.animate ? 'is-active' : ''} onClick={() => set('animate', false)}>Off</button>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 13, marginBottom: 8 }}>Rank / file labels</div>
+            <div className="segmented">
+              <button className={settings.showLabels ? 'is-active' : ''} onClick={() => set('showLabels', true)}>On</button>
+              <button className={!settings.showLabels ? 'is-active' : ''} onClick={() => set('showLabels', false)}>Off</button>
             </div>
           </div>
 

@@ -1,8 +1,11 @@
 import React, { useMemo, useRef, useState, useLayoutEffect, Suspense } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
-import { OrbitControls, Text, useGLTF, Environment, Lightformer, Billboard } from '@react-three/drei';
+import { OrbitControls, Text, useGLTF, Environment, Lightformer, Billboard, Stars } from '@react-three/drei';
 import * as THREE from 'three';
+import { findKing, GameStatus } from 'spherical-chess-shared';
 import type { GameState, Position, Move, Color, Piece, PieceType } from 'spherical-chess-shared';
+
+export const BACKGROUND_COLOR = '#0a0710'; // deep space (replaces the flat navy)
 
 export type Quality = 'fast' | 'high';
 export interface AnimatedMove { from: Position; to: Position; id: number; }
@@ -15,6 +18,7 @@ interface ChessSphereProps {
   onSquareClick: (pos: Position) => void;
   quality: Quality;
   animatedMove: AnimatedMove | null;
+  showLabels?: boolean;
 }
 
 export const SPHERE_RADIUS = 3;
@@ -315,6 +319,30 @@ function Square({ file, rank, isLight, isSelected, isValidMove, isLastMove, hasP
   );
 }
 
+/** Pulsing red ring on the checked king's square. Anchored to the board, so it
+ *  reads correctly no matter where the king sits around the poles. */
+function CheckMarker({ pos }: { pos: Position }) {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame(({ clock }) => {
+    const m = ref.current;
+    if (!m) return;
+    const t = (Math.sin(clock.elapsedTime * 4.5) + 1) / 2;
+    (m.material as THREE.MeshBasicMaterial).opacity = 0.45 + t * 0.5;
+    const s = 1 + t * 0.14;
+    m.scale.set(s, s, s);
+  });
+  const center = SQUARE_CENTER[pos.file][pos.rank];
+  const quat = SQUARE_QUAT[pos.file][pos.rank];
+  return (
+    <group position={center.clone().multiplyScalar(1.012)} quaternion={quat}>
+      <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.34, 0.5, 48]} />
+        <meshBasicMaterial color="#ff3b30" transparent opacity={0.8} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
 /** Coordinate labels floating just off the surface. */
 function BoardLabels() {
   const labels: React.ReactNode[] = [];
@@ -348,8 +376,14 @@ function BoardLabels() {
 }
 
 /** The full 3D sphere board scene. */
-function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick, quality, animatedMove }: ChessSphereProps) {
+function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick, quality, animatedMove, showLabels = true }: ChessSphereProps) {
   const lastMove = gameState.moveHistory.length > 0 ? gameState.moveHistory[gameState.moveHistory.length - 1] : null;
+
+  // When the side to move is in check (or mated), highlight their king.
+  const checkSquare = useMemo(() => {
+    if (gameState.status !== GameStatus.Check && gameState.status !== GameStatus.Checkmate) return null;
+    return findKing(gameState.board, gameState.turn);
+  }, [gameState.status, gameState.turn, gameState.board]);
 
   const woodMap = useLoader(THREE.TextureLoader, WOOD_TEXTURE);
   useMemo(() => {
@@ -410,7 +444,8 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
           <PieceLayer board={gameState.board} quality={quality} animatedMove={animatedMove} onSquareClick={onSquareClick} />
         </Suspense>
 
-        <BoardLabels />
+        {checkSquare && <CheckMarker pos={checkSquare} />}
+        {showLabels && <BoardLabels />}
       </group>
 
       <OrbitControls enablePan={false} minDistance={4.5} maxDistance={14} rotateSpeed={0.5} enableDamping dampingFactor={0.1} />
@@ -421,7 +456,9 @@ function SphereBoardScene({ gameState, validMoves, selectedSquare, onSquareClick
 export default function ChessSphere(props: ChessSphereProps) {
   return (
     <Canvas camera={{ position: [0, 2.5, 8], fov: 50 }} style={{ width: '100%', height: '100%' }}>
-      <color attach="background" args={['#0f0f1a']} />
+      <color attach="background" args={[BACKGROUND_COLOR]} />
+      {/* A drifting starfield — a chess planet in deep space. */}
+      <Stars radius={120} depth={50} count={2500} factor={4} saturation={0} fade speed={0.4} />
       <Suspense fallback={null}>
         <SphereBoardScene {...props} />
       </Suspense>

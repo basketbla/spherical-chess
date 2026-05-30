@@ -48,3 +48,15 @@ to set up a position and assert on generated moves.
 **When to add a test:** see [AGENTS.md](../AGENTS.md). Short version — add one
 when it earns its keep (locking in a fixed bug so it can't regress, or pinning a
 tricky invariant). Don't add tests reflexively for every change.
+
+## Debug / visual views (dev only)
+
+Query-string entry points into the client for eyeballing things by hand. They're
+URL-only (not linked from the UI) and bundle-inert otherwise:
+
+- `?debug=piece` — material/lighting tuner for a single rotating piece.
+- `?debug=board` — wood-board surface + lighting tuner.
+- `?scenario=check` — boots a local game where a king is in check (to see the
+  check indicator). Defined in `client/src/debugScenarios.ts`.
+- `?scenario=checkmate` — boots a finished (fool's-mate) game to see the
+  game-over UI. Add more scenarios in `debugScenarios.ts`.
