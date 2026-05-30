@@ -7,6 +7,9 @@ node_modules
 **/*.tsbuildinfo
 *.log
 .netlify
+# Tests never run in the runtime image.
+tests
+vitest.config.ts
 # Client assets aren't needed for the backend image (client is on Netlify).
 client/public
 client/src
